@@ -311,6 +311,7 @@ public class MainForm : Form
 
         chkAuto = new CheckBox();
         chkAuto.Location = new Point(404, 52); chkAuto.AutoSize = true;
+        chkAuto.CheckedChanged += delegate { SaveSettings(); };
         grp.Controls.Add(chkAuto);
 
         // ----- language selector (same 5 as the repo READMEs) -----
@@ -387,6 +388,7 @@ public class MainForm : Form
         warmHueV = (int)numWarmHue.Value;
         warmSatV = (int)numWarmSat.Value;
         captureAllV = chkAll.Checked;
+        SaveSettings();          // autosave: survive hard kills / crashes
     }
 
     // ----- start / stop -----
@@ -474,8 +476,11 @@ public class MainForm : Form
                     int rM = (int)smR, gM = (int)smG, bM = (int)smB;
                     int hue, sat, val;
                     RgbToHsv(rM, gM, bM, out hue, out sat, out val);
-                    double sg = satGainV;
-                    sat = (int)Math.Min(100, sat * sg);
+                    // boost stripped of the "washed-out mid" problem: cheap RGB LEDs
+                    // render s40..70% as near-white, so mid sats are pulled up by a
+                    // power curve (0.75) before the user gain is applied.
+                    double sf = Math.Pow(Math.Min(100, sat * satGainV) / 100.0, 0.75);
+                    sat = (int)Math.Min(100, sf * 100.0);
                     bool whiteOut = (val < 14 || sat < whiteThrV);
                     if (whiteOut)
                     {

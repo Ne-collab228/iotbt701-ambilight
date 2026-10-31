@@ -44,7 +44,7 @@ sm    += (avg − sm) * k
 | Parameter | Default | Meaning |
 |---|---|---|
 | interval | 700 ms | capture→update period |
-| satGain | 1.6 | saturation multiplier: averages are washed-out, boost restores vivid colour. 1.0 = untouched average, 3.0 = aggressive (amplifies tiny blue tints of grey scenes → the "why is it azure" effect) |
+| satGain | 1.6 | saturation multiplier: averages are washed-out, boost restores vivid colour. 1.0 = untouched average, 3.0 = aggressive (amplifies tiny blue tints of grey scenes → the "why is it azure" effect). A built-in 0.75 power curve on top pulls the washed-out middle (s40–70%) up, because cheap RGB LEDs render mid saturations as near-white |
 | minBri | 8 | brightness floor, % |
 | briGain | 1.4 | brightness multiplier (screens average ~40–60% bright) |
 | whiteThr | 16 | saturation below this value (before white-out) ⇒ **pure white** output. This is the fix for "grey scene → bluish strip": low-sat blue is forced to white |
@@ -53,7 +53,13 @@ sm    += (avg − sm) * k
 | dark scene | val<14 | average value below 14% ⇒ white, dim (night scenes in games are actually dark-blue pixels) |
 
 ```
-sat = clamp(avg_sat * satGain, 0, 100)
+sat = 100 * ((min(100, avg_sat * satGain) / 100) ^ 0.75)
+```
+The extra power curve (exponent 0.75) exists because cheap RGB LEDs render
+mid saturations (40–70%) as near-white: the curve pulls the middle up so
+"half-coloured" scenes still read as coloured on the strip.
+
+```
 whiteOut = avg_val < 14  or  sat < whiteThr
 if whiteOut:  hue = warmHue (even-quantized), sat = warmSat   -> warm white
 bri = max(minBri, min(100, avg_val * briGain))
