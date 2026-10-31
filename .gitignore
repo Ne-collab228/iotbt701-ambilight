@@ -1,0 +1,7 @@
+# build artifacts / junk
+*.exe
+*.zip
+*.obj
+bin/
+obj/
+Thumbs.db
