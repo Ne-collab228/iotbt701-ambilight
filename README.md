@@ -1,0 +1,61 @@
+# IOTBT701 BLE LED Strip — Windows Control & Ambilight
+
+Reverse-engineered control of a **Zengge / IOTBT-family Bluetooth (BLE) LED strip**
+("IOTBT701", MAC `08:65:F0:DE:37:01`) from a Windows 10/11 PC — with **no vendor app,
+ no pairing, no serial numbers, no cloud**. Includes a ready-screen->strip **Ambilight**
+program with a settings GUI.
+
+Everything here was **verified against the physical device** 2026-10-30/31. Protocol
+knowledge is derived from the open-source [8none1/lednetwf_ble](https://github.com/8none1/lednetwf_ble)
+Home Assistant integration plus our own captures on this specific unit.
+
+## What works (verified matrix)
+
+| Capability | Status | Transport |
+|---|---|---|
+| BLE discovery (`IOTBT701` advertised) | ✅ verified | BLE adv, RSSI -56..-86 dBm |
+| GATT connect + keepalive (`GattSession.MaintainConnection`) | ✅ verified | service `FFFF` |
+| Command write (write-without-response) | ✅ verified | char `FF01` |
+| Power ON / OFF | ✅ verified | `3B 23 / 3B 24` payload |
+| Solid white (saturation 0) | ✅ verified | v3 colour + legacy `3B A1` |
+| Colour (hue 0..359, 12-colour sweep + long use) | ✅ verified | **`E0 01 00 A1` (colour_data_v3)** |
+| RGB → HSV conversion | ✅ verified | C# helpers in this repo |
+| Ambilight (screen average → strip, GUI, settings) | ✅ verified | `AmbilightOT.exe` |
+| Notify/state readback (FF02) | ⚠ partially (events arrive, payload empty) | char `FF02` |
+
+**Key non-obvious finding:** this device **ignores every classic colour command**
+(`31/41/42/46 R G B ...`, and `3B A1 <hue> <sat> <bri>` whenever hue ≠ 0).
+Only the **v3 envelope `E0 01 00 A1 ...`** drives colour ("the E0 01 envelope is
+load-bearing", same conclusion as PR #101 of lednetwf_ble).
+
+**Key device-specific finding:** with full saturation the packed hue byte-pair is
+`<hue/2> <sat>` only for **even hue degrees**. The odd-hue encoding (`lo = sat + 128`)
+is **misinterpreted by this firmware** (azure 193° produced a wrong/inert result).
+Fix used here: quantize hue to the nearest **even** degree (≤1° error, invisible).
+
+## Repo layout
+
+```
+README.md            this file
+docs/PROTOCOL.md     byte-exact protocol: framing, checksum, commands, quirks
+docs/AMBILIGHT.md    how the screen-colour extraction works, every constant
+docs/BUILDING.md     how the .exe files are built (no Visual Studio, C# 5 compiler)
+src/                 sources: AmbilightOT GUI, ledctl console tool, BLE scanner,
+                     build scripts
+```
+
+## Tools
+
+| Program | Purpose |
+|---|---|
+| `AmbilightOT.exe` | Ambilight: screens the primary monitor ~1.4×/s, computes the dominant colour, drives the strip. WinForms GUI with live colour preview and settings. Shortcut-friendly (close window = strip keeps colour, remote control resumes) |
+| `ledctl.exe` | Console tester: `on`, `off`, `white`, `rgb R G B`, `hsv H S B`, 12-colour sweep |
+| `blescan.exe` | 25 s BLE advertisement scanner |
+
+## Safety / etiquette notes
+
+- BLE write rate kept **≤ ~2.5 writes/s** (≥ 350 ms gap); the strip tolerates 1–3/s.
+- The vendor phone app (Surplife/Zengge) must be closed while the PC tool holds the link;
+  the strip accepts **one** GATT client.
+- Closing the control program leaves the last colour on the strip and returns the
+  remote control; nothing is persisted beyond the usual device behaviour.
