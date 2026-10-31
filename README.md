@@ -1,5 +1,7 @@
 # IOTBT701 BLE LED Strip — Windows Control & Ambilight
 
+> 🌐 Documentation language: **English** | [Русский](README.ru.md) | [Español](README.es.md) | [中文](README.zh-CN.md) | [Português](README.pt-BR.md)
+
 Reverse-engineered control of a **Zengge / IOTBT-family Bluetooth (BLE) LED strip**
 ("IOTBT701", MAC `08:65:F0:DE:37:01`) from a Windows 10/11 PC — with **no vendor app,
  no pairing, no serial numbers, no cloud**. Includes a ready-screen->strip **Ambilight**
