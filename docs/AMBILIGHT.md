@@ -73,7 +73,14 @@ hue: quantized to the nearest EVEN degree (firmware quirk, see PROTOCOL.md)
 ## 6. Persistence & UI
 
 - Settings live in `ambilight_settings.txt` next to the exe
-  (`interval=`, `satGain=`, `briGain=`, `minBri=`, `whiteThr=`, `allScreens=`, `autostart=`).
+  (`interval=`, `satGain=`, `briGain=`, `minBri=`, `whiteThr=`, `allScreens=`, `autostart=`,
+  `lang=`).
+- **UI languages: Russian, English, Spanish, Chinese (simplified), Portuguese (BR)** —
+  the same set as the repo READMEs. A drop-down selector ("Язык / Language", in the
+  Settings box) switches every static label, button, status line and the hue-name
+  list at runtime; the choice is saved to `lang=` in the settings file (default `ru`).
+  The format strings with placeholders (`strip: {0} s{1}% b{2}%`) live in the `L10n` table in
+  `src/ambilight_gui.cs`; adding a 6th language is a one-array edit.
 - WinForms window: 200×130 px live swatch, avg-RGB readout, strip readout
   (`ORANGE s83% b36%`), status, log pane, Start/Stop toggle.
 - Closing the window stops the loop, disposes the GATT session; the strip keeps

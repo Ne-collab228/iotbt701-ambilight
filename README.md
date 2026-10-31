@@ -50,7 +50,7 @@ src/                 sources: AmbilightOT GUI, ledctl console tool, BLE scanner,
 
 | Program | Purpose |
 |---|---|
-| `AmbilightOT.exe` | Ambilight: screens the primary monitor ~1.4×/s, computes the dominant colour, drives the strip. WinForms GUI with live colour preview and settings. Shortcut-friendly (close window = strip keeps colour, remote control resumes) |
+| `AmbilightOT.exe` | Ambilight: screens the primary monitor ~1.4×/s, computes the dominant colour, drives the strip. WinForms GUI with live colour preview and settings (UI languages: RU/EN/ES/ZH-CN/PT-BR, switchable in the window). Shortcut-friendly (close window = strip keeps colour, remote control resumes) |
 | `ledctl.exe` | Console tester: `on`, `off`, `white`, `rgb R G B`, `hsv H S B`, 12-colour sweep |
 | `blescan.exe` | 25 s BLE advertisement scanner |
 

@@ -27,6 +27,122 @@ static class AmbiGui
     }
 }
 
+// Localization: 5 languages, same set as the repo READMEs (ru/en/es/zh/pt)
+public static class L10n
+{
+    public static readonly string[] Codes = { "ru", "en", "es", "zh", "pt" };
+    public static readonly string[] Names = { "Русский", "English", "Español", "中文", "Português (BR)" };
+
+    // key ids into the string table
+    public const int TITLE = 0, STRIPWAIT = 1, AVG0 = 2, AVG = 3, NOTCONN = 4,
+        START = 5, STOP = 6, SETTINGS = 7, INTERVAL = 8, SAT = 9, BRI = 10,
+        MINBRI = 11, WHITE = 12, ALLMON = 13, AUTOSTART = 14, CONNECTING = 15,
+        CONNECTED = 16, STOPPED = 17, SCREEN = 18, STRIP = 19, WHITEF = 20,
+        SENT = 21, LANG = 22;
+
+    static readonly string[][] T =
+    {
+        // 0: Russian
+        new []{ "Ambilight OT — лента повторяет экран",
+                "лента: ждёт запуска", "средний цвет экрана: -",
+                "средний цвет экрана: RGB({0},{1},{2})",
+                "не подключено", "ПУСК", "СТОП", "Настройки",
+                "интервал обновления, мс", "насыщенность x", "яркость x",
+                "мин. яркость %", "серый -> белый при s<",
+                "все мониторы", "включать при старте",
+                "подключение к ленте...", "подключено",
+                "остановлено; лента осталась в текущем цвете",
+                "экран {0}x{1}",
+                "лента: {0}  s{1}%  b{2}%", "лента: БЕЛЫЙ  b{0}%",
+                "отправлено: {0}", "Язык / Language" },
+        // 1: English
+        new []{ "Ambilight OT — strip mirrors the screen",
+                "strip: waiting to start", "screen average: -",
+                "screen average: RGB({0},{1},{2})",
+                "not connected", "START", "STOP", "Settings",
+                "update interval, ms", "saturation x", "brightness x",
+                "min brightness %", "grey -> white when s<",
+                "all monitors", "start on launch",
+                "connecting to strip...", "connected",
+                "stopped; strip keeps its current colour",
+                "screen {0}x{1}",
+                "strip: {0}  s{1}%  b{2}%", "strip: WHITE  b{0}%",
+                "sent: {0}", "Language" },
+        // 2: Spanish
+        new []{ "Ambilight OT — la tira refleja la pantalla",
+                "tira: en espera", "color medio de pantalla: -",
+                "color medio de pantalla: RGB({0},{1},{2})",
+                "sin conexión", "INICIAR", "DETENER", "Ajustes",
+                "intervalo, ms", "saturación x", "brillo x",
+                "brillo mín. %", "gris -> blanco con s<",
+                "todos los monitores", "arrancar al abrir",
+                "conectando a la tira...", "conectado",
+                "detenido; la tira conserva su color",
+                "pantalla {0}x{1}",
+                "tira: {0}  s{1}%  b{2}%", "tira: BLANCO  b{0}%",
+                "enviado: {0}", "Idioma" },
+        // 3: Chinese (simplified)
+        new []{ "Ambilight OT — 灯带同步屏幕",
+                "灯带：等待启动", "屏幕平均色：-",
+                "屏幕平均色：RGB({0},{1},{2})",
+                "未连接", "启动", "停止", "设置",
+                "刷新间隔，毫秒", "饱和度 ×", "亮度 ×",
+                "最低亮度 %", "灰色→白色：当 s<",
+                "所有显示器", "启动时自动开灯",
+                "正在连接灯带...", "已连接",
+                "已停止；灯带保持当前颜色",
+                "屏幕 {0}x{1}",
+                "灯带：{0}  s{1}%  b{2}%", "灯带：白色  亮度{0}%",
+                "已发送：{0}", "语言" },
+        // 4: Portuguese (Brazil)
+        new []{ "Ambilight OT — fita espelha a tela",
+                "fita: aguardando início", "cor média da tela: -",
+                "cor média da tela: RGB({0},{1},{2})",
+                "sem conexão", "INICIAR", "PARAR", "Ajustes",
+                "intervalo de atualização, ms", "saturação x", "brilho x",
+                "brilho mín. %", "cinza -> branco com s<",
+                "todos os monitores", "ligar ao iniciar",
+                "conectando à fita...", "conectado",
+                "parado; a fita mantém a cor atual",
+                "tela {0}x{1}",
+                "fita: {0}  s{1}%  b{2}%", "fita: BRANCO  b{0}%",
+                "enviado: {0}", "Idioma" }
+    };
+
+    public static string S(int lang, int key)
+    {
+        if (lang < 0 || lang >= T.Length) lang = 0;
+        return T[lang][key];
+    }
+
+    public static int Index(string code)
+    {
+        for (int i = 0; i < Codes.Length; i++) if (Codes[i] == code) return i;
+        return 0;
+    }
+
+    static readonly string[][] HUES =
+    {
+        new []{ "КРАСНЫЙ","ОРАНЖЕВЫЙ","ЖЁЛТЫЙ","САЛАТОВЫЙ","ЗЕЛЁНЫЙ","ВЕСЕННИЙ",
+                "ЦИАН","ЛАЗУРНЫЙ","СИНИЙ","ФИОЛЕТОВЫЙ","ПУРПУРНЫЙ","РОЗОВЫЙ" },
+        new []{ "RED","ORANGE","YELLOW","LIME","GREEN","SPRING",
+                "CYAN","AZURE","BLUE","VIOLET","MAGENTA","ROSE" },
+        new []{ "ROJO","NARANJA","AMARILLO","LIMA","VERDE","PRIMAVERA",
+                "CIAN","AZUL CELESTE","AZUL","VIOLETA","MAGENTA","ROSA" },
+        new []{ "红色","橙色","黄色","黄绿色","绿色","春绿色",
+                "青色","天蓝","蓝色","紫色","品红","玫红" },
+        new []{ "VERMELHO","LARANJA","AMARELO","LIMA","VERDE","PRIMAVERA",
+                "CIANO","AZUL CELESTE","AZUL","VIOLETA","MAGENTA","ROSA" }
+    };
+
+    public static string Hue(int lang, int deg)
+    {
+        if (deg < 0) return "-";
+        if (lang < 0 || lang >= HUES.Length) lang = 0;
+        return HUES[lang][((deg + 15) % 360) / 30];
+    }
+}
+
 public class MainForm : Form
 {
     // ----- BLE -----
@@ -53,14 +169,20 @@ public class MainForm : Form
     // ----- UI -----
     Panel preview;
     Label lblAvg, lblStrip, lblStatus, lblLastSend;
+    Label lInterval, lSat, lBri, lMin, lWhite, lLang;
+    ComboBox comboLang;
     Button btnStart;
     CheckBox chkAll, chkAuto;
     NumericUpDown numInterval, numSat, numBri, numMin, numWhite;
     TextBox txtLog;
+    GroupBox grp;
+
+    // ----- language -----
+    int langIdx = 0;   // index into L10n Codes/Names, default Russian
 
     public MainForm()
     {
-        Text = "Ambilight OT - лента повторяет экран";
+        Text = "Ambilight OT";
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -77,14 +199,12 @@ public class MainForm : Form
         lblStrip = new Label();
         lblStrip.Location = new Point(224, 20);
         lblStrip.Size = new Size(316, 44);
-        lblStrip.Text = "лента: ждёт запуска";
         lblStrip.Font = new Font(Font.FontFamily, 10, FontStyle.Bold);
         Controls.Add(lblStrip);
 
         lblAvg = new Label();
         lblAvg.Location = new Point(224, 66);
         lblAvg.Size = new Size(316, 20);
-        lblAvg.Text = "средний цвет экрана: -";
         Controls.Add(lblAvg);
 
         lblLastSend = new Label();
@@ -96,26 +216,23 @@ public class MainForm : Form
         lblStatus = new Label();
         lblStatus.Location = new Point(224, 112);
         lblStatus.Size = new Size(316, 34);
-        lblStatus.Text = "не подключено";
         Controls.Add(lblStatus);
 
         btnStart = new Button();
         btnStart.Location = new Point(16, 158);
         btnStart.Size = new Size(200, 40);
-        btnStart.Text = "ПУСК";
         btnStart.Font = new Font(Font.FontFamily, 11, FontStyle.Bold);
         btnStart.Click += OnStartStop;
         Controls.Add(btnStart);
 
         // ----- settings -----
-        GroupBox grp = new GroupBox();
-        grp.Text = "Настройки";
+        grp = new GroupBox();
         grp.Location = new Point(16, 206);
         grp.Size = new Size(528, 190);
         Controls.Add(grp);
 
-        Label L1 = MkLabel("интервал обновления, мс", 14, 26);
-        grp.Controls.Add(L1);
+        lInterval = MkLabel("", 14, 26);
+        grp.Controls.Add(lInterval);
         numInterval = new NumericUpDown();
         numInterval.Minimum = 200; numInterval.Maximum = 3000;
         numInterval.Increment = 100; numInterval.Value = 700;
@@ -123,8 +240,8 @@ public class MainForm : Form
         numInterval.ValueChanged += delegate { intervalV = (int)numInterval.Value; };
         grp.Controls.Add(numInterval);
 
-        Label L2 = MkLabel("насыщенность x", 14, 56);
-        grp.Controls.Add(L2);
+        lSat = MkLabel("", 14, 56);
+        grp.Controls.Add(lSat);
         numSat = new NumericUpDown();
         numSat.Minimum = (decimal)0.5; numSat.Maximum = (decimal)3.0;
         numSat.Increment = (decimal)0.1; numSat.DecimalPlaces = 1;
@@ -133,8 +250,8 @@ public class MainForm : Form
         numSat.ValueChanged += delegate { satGainV = (double)numSat.Value; };
         grp.Controls.Add(numSat);
 
-        Label L3 = MkLabel("яркость x", 14, 86);
-        grp.Controls.Add(L3);
+        lBri = MkLabel("", 14, 86);
+        grp.Controls.Add(lBri);
         numBri = new NumericUpDown();
         numBri.Minimum = (decimal)1.0; numBri.Maximum = (decimal)2.0;
         numBri.Increment = (decimal)0.1; numBri.DecimalPlaces = 1;
@@ -143,8 +260,8 @@ public class MainForm : Form
         numBri.ValueChanged += delegate { briGainV = (double)numBri.Value; };
         grp.Controls.Add(numBri);
 
-        Label L4 = MkLabel("мин. яркость %", 14, 116);
-        grp.Controls.Add(L4);
+        lMin = MkLabel("", 14, 116);
+        grp.Controls.Add(lMin);
         numMin = new NumericUpDown();
         numMin.Minimum = 0; numMin.Maximum = 40;
         numMin.Increment = 1; numMin.Value = 8;
@@ -152,8 +269,8 @@ public class MainForm : Form
         numMin.ValueChanged += delegate { minBriV = (int)numMin.Value; };
         grp.Controls.Add(numMin);
 
-        Label L5 = MkLabel("серый -> белый при s<", 14, 146);
-        grp.Controls.Add(L5);
+        lWhite = MkLabel("", 14, 146);
+        grp.Controls.Add(lWhite);
         numWhite = new NumericUpDown();
         numWhite.Minimum = 0; numWhite.Maximum = 40;
         numWhite.Increment = 1; numWhite.Value = 16;
@@ -162,15 +279,29 @@ public class MainForm : Form
         grp.Controls.Add(numWhite);
 
         chkAll = new CheckBox();
-        chkAll.Text = "все мониторы";
-        chkAll.Location = new Point(410, 24); chkAll.Size = new Size(112, 24);
+        chkAll.Location = new Point(404, 24); chkAll.AutoSize = true;
         chkAll.CheckedChanged += delegate { captureAllV = chkAll.Checked; };
         grp.Controls.Add(chkAll);
 
         chkAuto = new CheckBox();
-        chkAuto.Text = "включать при старте";
-        chkAuto.Location = new Point(410, 52); chkAuto.Size = new Size(112, 24);
+        chkAuto.Location = new Point(404, 52); chkAuto.AutoSize = true;
         grp.Controls.Add(chkAuto);
+
+        // ----- language selector (same 5 as the repo READMEs) -----
+        lLang = MkLabel("", 404, 84);
+        grp.Controls.Add(lLang);
+
+        comboLang = new ComboBox();
+        comboLang.DropDownStyle = ComboBoxStyle.DropDownList;
+        comboLang.Location = new Point(404, 104); comboLang.Size = new Size(120, 24);
+        foreach (string n in L10n.Names) comboLang.Items.Add(n);
+        comboLang.SelectedIndexChanged += delegate
+        {
+            langIdx = comboLang.SelectedIndex;
+            SaveSettings();
+            ApplyLang();
+        };
+        grp.Controls.Add(comboLang);
 
         // ----- log -----
         txtLog = new TextBox();
@@ -183,8 +314,32 @@ public class MainForm : Form
 
         FormClosing += OnClosing;
         LoadSettings();
+        comboLang.SelectedIndex = langIdx;      // fires ApplyLang
         PushUItoVolatile();
         if (chkAuto.Checked) StartWork();
+    }
+
+    // set every static control text from the current language table
+    void ApplyLang()
+    {
+        Text = L10n.S(langIdx, L10n.TITLE);
+        grp.Text = L10n.S(langIdx, L10n.SETTINGS);
+        lInterval.Text = L10n.S(langIdx, L10n.INTERVAL);
+        lSat.Text = L10n.S(langIdx, L10n.SAT);
+        lBri.Text = L10n.S(langIdx, L10n.BRI);
+        lMin.Text = L10n.S(langIdx, L10n.MINBRI);
+        lWhite.Text = L10n.S(langIdx, L10n.WHITE);
+        lLang.Text = L10n.S(langIdx, L10n.LANG);
+        chkAll.Text = L10n.S(langIdx, L10n.ALLMON);
+        chkAuto.Text = L10n.S(langIdx, L10n.AUTOSTART);
+        btnStart.Text = running ? L10n.S(langIdx, L10n.STOP) : L10n.S(langIdx, L10n.START);
+        if (!running)
+        {
+            lblStrip.Text = L10n.S(langIdx, L10n.STRIPWAIT);
+            lblAvg.Text = L10n.S(langIdx, L10n.AVG0);
+            lblStatus.Text = L10n.S(langIdx, L10n.NOTCONN);
+            lblLastSend.Text = "";
+        }
     }
 
     static Label MkLabel(string t, int x, int y)
@@ -215,7 +370,7 @@ public class MainForm : Form
         if (running) return;
         running = true;
         PushUItoVolatile();
-        btnStart.Text = "СТОП";
+        btnStart.Text = L10n.S(langIdx, L10n.STOP);
         worker = new Thread(WorkLoop);
         worker.IsBackground = true;
         worker.Start();
@@ -225,8 +380,8 @@ public class MainForm : Form
     {
         if (!running) return;
         running = false;
-        btnStart.Text = "ПУСК";
-        lblStatus.Text = "остановлено; лента осталась в текущем цвете";
+        btnStart.Text = L10n.S(langIdx, L10n.START);
+        lblStatus.Text = L10n.S(langIdx, L10n.STOPPED);
         // worker exits loop itself: closes bitmaps and BLE session
     }
 
@@ -248,7 +403,7 @@ public class MainForm : Form
         {
             int sx, sy, sw, sh;
             ScreenBounds(captureAllV, out sx, out sy, out sw, out sh);
-            UiSafe(delegate { lblStatus.Text = "экран " + sw + "x" + sh; });
+            UiSafe(delegate { lblStatus.Text = string.Format(L10n.S(langIdx, L10n.SCREEN), sw, sh); });
             Log("screen " + sw + "x" + sh + " @(" + sx + "," + sy + ")");
 
             big = new Bitmap(sw, sh);
@@ -260,13 +415,13 @@ public class MainForm : Form
             {
                 if (f01 == null)
                 {
-                    UiSafe(delegate { lblStatus.Text = "подключение к ленте..."; });
+                    UiSafe(delegate { lblStatus.Text = L10n.S(langIdx, L10n.CONNECTING); });
                     if (!Connect()) { Thread.Sleep(6000); continue; }
                     if (!Send(new byte[] { 0x3B, 0x23, 0, 0, 0, 0, 0, 0, 0, 0x32, 0, 0 }, "power on"))
                     { Drop(); Thread.Sleep(4000); continue; }
                     lastH = -999; lastS = -999; lastB = -999;
                     smR = smG = smB = -1;
-                    UiSafe(delegate { lblStatus.Text = "подключено"; });
+                    UiSafe(delegate { lblStatus.Text = L10n.S(langIdx, L10n.CONNECTED); });
                     Thread.Sleep(1200);
                 }
 
@@ -302,10 +457,10 @@ public class MainForm : Form
                     UiSafe(delegate
                     {
                         preview.BackColor = c;
-                        lblAvg.Text = "средний цвет экрана: RGB(" + rM + "," + gM + "," + bM + ")";
+                        lblAvg.Text = string.Format(L10n.S(langIdx, L10n.AVG), rM, gM, bM);
                         lblStrip.Text = (sat == 0)
-                            ? "лента: БЕЛЫЙ  b" + bri + "%"
-                            : "лента: " + HueName(hue) + "  s" + sat + "%  b" + bri + "%";
+                            ? string.Format(L10n.S(langIdx, L10n.WHITEF), bri)
+                            : string.Format(L10n.S(langIdx, L10n.STRIP), L10n.Hue(langIdx, hue), sat, bri);
                     });
 
                     if (changed && (DateTime.Now - lastSend).TotalMilliseconds >= 350)
@@ -315,7 +470,7 @@ public class MainForm : Form
                             lastH = hue; lastS = sat; lastB = bri;
                             lastSend = DateTime.Now;
                             UiSafe(delegate { lblLastSend.Text =
-                                "отправлено: " + DateTime.Now.ToString("HH:mm:ss"); });
+                                string.Format(L10n.S(langIdx, L10n.SENT), DateTime.Now.ToString("HH:mm:ss")); });
                         }
                         else Drop();
                     }
@@ -343,7 +498,7 @@ public class MainForm : Form
             if (gS != null) gS.Dispose();
             big = null; small = null; gBig = null; gS = null;
             Drop();
-            UiSafe(delegate { if (!running) lblStatus.Text = "остановлено; лента осталась в текущем цвете"; });
+            UiSafe(delegate { if (!running) lblStatus.Text = L10n.S(langIdx, L10n.STOPPED); });
             Log("stopped");
         }
     }
@@ -385,6 +540,7 @@ public class MainForm : Form
             sb.AppendLine("whiteThr=" + numWhite.Value);
             sb.AppendLine("allScreens=" + (chkAll.Checked ? "1" : "0"));
             sb.AppendLine("autostart=" + (chkAuto.Checked ? "1" : "0"));
+            sb.AppendLine("lang=" + L10n.Codes[langIdx]);
             File.WriteAllText(IniPath(), sb.ToString());
         }
         catch { }
@@ -411,6 +567,7 @@ public class MainForm : Form
                     else if (key == "whitethr") numWhite.Value = Clamp(numWhite, decimal.Parse(v, CultureInfo.InvariantCulture));
                     else if (key == "allscreens") chkAll.Checked = (v == "1");
                     else if (key == "autostart") chkAuto.Checked = (v == "1");
+                    else if (key == "lang") langIdx = L10n.Index(v);
                 }
                 catch { }
             }
@@ -583,14 +740,6 @@ public class MainForm : Form
         else if (h < 300) { r = x; b = c; }
         else { r = c; b = x; }
         return Color.FromArgb((int)((r + m) * 255), (int)((g + m) * 255), (int)((b + m) * 255));
-    }
-
-    static string HueName(int deg)
-    {
-        if (deg < 0) return "-";
-        string[] names = { "RED", "ORANGE", "YELLOW", "LIME", "GREEN", "SPRING",
-                           "CYAN", "AZURE", "BLUE", "VIOLET", "MAGENTA", "ROSE" };
-        return names[((deg + 15) % 360) / 30];
     }
 
     static void Average(Bitmap src, out int rAvg, out int gAvg, out int bAvg, out double wSum)
