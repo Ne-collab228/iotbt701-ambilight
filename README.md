@@ -46,6 +46,14 @@ src/                 sources: AmbilightOT GUI, ledctl console tool, BLE scanner,
                      build scripts
 ```
 
+## Screenshots
+
+![AmbilightOT GUI window](screenshots/ambilight_gui.png)
+
+*The window in action: live colour swatch (the exact colour the strip renders),
+screen-average readout, status + log, and all settings. UI language switcher in
+the Settings box: Русский / English / Español / 中文 / Português (BR).*
+
 ## Tools
 
 | Program | Purpose |
