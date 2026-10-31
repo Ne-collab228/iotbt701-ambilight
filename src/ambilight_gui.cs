@@ -38,7 +38,7 @@ public static class L10n
         START = 5, STOP = 6, SETTINGS = 7, INTERVAL = 8, SAT = 9, BRI = 10,
         MINBRI = 11, WHITE = 12, ALLMON = 13, AUTOSTART = 14, CONNECTING = 15,
         CONNECTED = 16, STOPPED = 17, SCREEN = 18, STRIP = 19, WHITEF = 20,
-        SENT = 21, LANG = 22;
+        SENT = 21, LANG = 22, WARMHUE = 23, WARMSAT = 24;
 
     static readonly string[][] T =
     {
@@ -54,7 +54,8 @@ public static class L10n
                 "остановлено; лента осталась в текущем цвете",
                 "экран {0}x{1}",
                 "лента: {0}  s{1}%  b{2}%", "лента: БЕЛЫЙ  b{0}%",
-                "отправлено: {0}", "Язык / Language" },
+                "отправлено: {0}", "Язык / Language",
+                "тёплая поправка: тон °", "тёплая поправка %" },
         // 1: English
         new []{ "Ambilight OT — strip mirrors the screen",
                 "strip: waiting to start", "screen average: -",
@@ -67,7 +68,8 @@ public static class L10n
                 "stopped; strip keeps its current colour",
                 "screen {0}x{1}",
                 "strip: {0}  s{1}%  b{2}%", "strip: WHITE  b{0}%",
-                "sent: {0}", "Language" },
+                "sent: {0}", "Language",
+                "warm white: hue °", "warm white: mix %" },
         // 2: Spanish
         new []{ "Ambilight OT — la tira refleja la pantalla",
                 "tira: en espera", "color medio de pantalla: -",
@@ -80,7 +82,8 @@ public static class L10n
                 "detenido; la tira conserva su color",
                 "pantalla {0}x{1}",
                 "tira: {0}  s{1}%  b{2}%", "tira: BLANCO  b{0}%",
-                "enviado: {0}", "Idioma" },
+                "enviado: {0}", "Idioma",
+                "blanco cálido: tono °", "mezcla cálida %" },
         // 3: Chinese (simplified)
         new []{ "Ambilight OT — 灯带同步屏幕",
                 "灯带：等待启动", "屏幕平均色：-",
@@ -93,7 +96,8 @@ public static class L10n
                 "已停止；灯带保持当前颜色",
                 "屏幕 {0}x{1}",
                 "灯带：{0}  s{1}%  b{2}%", "灯带：白色  亮度{0}%",
-                "已发送：{0}", "语言" },
+                "已发送：{0}", "语言",
+                "暖白修正：色调 °", "暖白强度 %" },
         // 4: Portuguese (Brazil)
         new []{ "Ambilight OT — fita espelha a tela",
                 "fita: aguardando início", "cor média da tela: -",
@@ -106,7 +110,8 @@ public static class L10n
                 "parado; a fita mantém a cor atual",
                 "tela {0}x{1}",
                 "fita: {0}  s{1}%  b{2}%", "fita: BRANCO  b{0}%",
-                "enviado: {0}", "Idioma" }
+                "enviado: {0}", "Idioma",
+                "branco quente: tom °", "mistura quente %" },
     };
 
     public static string S(int lang, int key)
@@ -161,6 +166,8 @@ public class MainForm : Form
     double satGainV = 1.6;
     volatile int minBriV = 8;
     volatile int whiteThrV = 16;   // scenes less saturated than this -> white
+    volatile int warmHueV = 48;    // warm-white correction: amber hue, 0..120
+    volatile int warmSatV = 5;     // warm-white mix strength %, 0 = off
     double briGainV = 1.4;
     volatile bool captureAllV = false;
     Bitmap big = null, small = null;
@@ -169,11 +176,11 @@ public class MainForm : Form
     // ----- UI -----
     Panel preview;
     Label lblAvg, lblStrip, lblStatus, lblLastSend;
-    Label lInterval, lSat, lBri, lMin, lWhite, lLang;
+    Label lInterval, lSat, lBri, lMin, lWhite, lLang, lWarm1, lWarm2;
     ComboBox comboLang;
     Button btnStart;
     CheckBox chkAll, chkAuto;
-    NumericUpDown numInterval, numSat, numBri, numMin, numWhite;
+    NumericUpDown numInterval, numSat, numBri, numMin, numWhite, numWarmHue, numWarmSat;
     TextBox txtLog;
     GroupBox grp;
 
@@ -186,7 +193,7 @@ public class MainForm : Form
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(560, 502);
+        ClientSize = new Size(560, 540);
 
         // ----- preview swatch -----
         preview = new Panel();
@@ -228,7 +235,7 @@ public class MainForm : Form
         // ----- settings -----
         grp = new GroupBox();
         grp.Location = new Point(16, 206);
-        grp.Size = new Size(528, 190);
+        grp.Size = new Size(528, 240);
         Controls.Add(grp);
 
         lInterval = MkLabel("", 14, 26);
@@ -278,6 +285,25 @@ public class MainForm : Form
         numWhite.ValueChanged += delegate { whiteThrV = (int)numWhite.Value; };
         grp.Controls.Add(numWhite);
 
+        // warm-white correction rows (compensates the strip's cold white cast)
+        lWarm1 = MkLabel("", 14, 176);
+        grp.Controls.Add(lWarm1);
+        numWarmHue = new NumericUpDown();
+        numWarmHue.Minimum = 0; numWarmHue.Maximum = 120;
+        numWarmHue.Increment = 2; numWarmHue.Value = 48;
+        numWarmHue.Location = new Point(300, 173); numWarmHue.Size = new Size(90, 24);
+        numWarmHue.ValueChanged += delegate { warmHueV = (int)numWarmHue.Value; };
+        grp.Controls.Add(numWarmHue);
+
+        lWarm2 = MkLabel("", 14, 206);
+        grp.Controls.Add(lWarm2);
+        numWarmSat = new NumericUpDown();
+        numWarmSat.Minimum = 0; numWarmSat.Maximum = 20;
+        numWarmSat.Increment = 1; numWarmSat.Value = 5;
+        numWarmSat.Location = new Point(300, 203); numWarmSat.Size = new Size(90, 24);
+        numWarmSat.ValueChanged += delegate { warmSatV = (int)numWarmSat.Value; };
+        grp.Controls.Add(numWarmSat);
+
         chkAll = new CheckBox();
         chkAll.Location = new Point(404, 24); chkAll.AutoSize = true;
         chkAll.CheckedChanged += delegate { captureAllV = chkAll.Checked; };
@@ -308,8 +334,8 @@ public class MainForm : Form
         txtLog.Multiline = true; txtLog.ReadOnly = true;
         txtLog.ScrollBars = ScrollBars.Vertical;
         txtLog.Font = new Font("Consolas", 9);
-        txtLog.Location = new Point(16, 402);
-        txtLog.Size = new Size(528, 86);
+        txtLog.Location = new Point(16, 452);
+        txtLog.Size = new Size(528, 80);
         Controls.Add(txtLog);
 
         FormClosing += OnClosing;
@@ -329,6 +355,8 @@ public class MainForm : Form
         lBri.Text = L10n.S(langIdx, L10n.BRI);
         lMin.Text = L10n.S(langIdx, L10n.MINBRI);
         lWhite.Text = L10n.S(langIdx, L10n.WHITE);
+        lWarm1.Text = L10n.S(langIdx, L10n.WARMHUE);
+        lWarm2.Text = L10n.S(langIdx, L10n.WARMSAT);
         lLang.Text = L10n.S(langIdx, L10n.LANG);
         chkAll.Text = L10n.S(langIdx, L10n.ALLMON);
         chkAuto.Text = L10n.S(langIdx, L10n.AUTOSTART);
@@ -356,6 +384,8 @@ public class MainForm : Form
         briGainV = (double)numBri.Value;
         minBriV = (int)numMin.Value;
         whiteThrV = (int)numWhite.Value;
+        warmHueV = (int)numWarmHue.Value;
+        warmSatV = (int)numWarmSat.Value;
         captureAllV = chkAll.Checked;
     }
 
@@ -446,7 +476,12 @@ public class MainForm : Form
                     RgbToHsv(rM, gM, bM, out hue, out sat, out val);
                     double sg = satGainV;
                     sat = (int)Math.Min(100, sat * sg);
-                    if (val < 14 || sat < whiteThrV) { sat = 0; hue = 0; }
+                    bool whiteOut = (val < 14 || sat < whiteThrV);
+                    if (whiteOut)
+                    {
+                        hue = warmHueV & ~1;              // even-hue firmware quirk
+                        sat = (warmSatV > 0) ? warmSatV : 0;
+                    }
                     int bri = Math.Max(minBriV, (int)Math.Min(100, val * briGainV));
 
                     // preview: the colour the strip actually shows
@@ -458,7 +493,7 @@ public class MainForm : Form
                     {
                         preview.BackColor = c;
                         lblAvg.Text = string.Format(L10n.S(langIdx, L10n.AVG), rM, gM, bM);
-                        lblStrip.Text = (sat == 0)
+                        lblStrip.Text = whiteOut
                             ? string.Format(L10n.S(langIdx, L10n.WHITEF), bri)
                             : string.Format(L10n.S(langIdx, L10n.STRIP), L10n.Hue(langIdx, hue), sat, bri);
                     });
@@ -538,6 +573,8 @@ public class MainForm : Form
             sb.AppendLine("briGain=" + numBri.Value.ToString(CultureInfo.InvariantCulture));
             sb.AppendLine("minBri=" + numMin.Value);
             sb.AppendLine("whiteThr=" + numWhite.Value);
+            sb.AppendLine("warmHue=" + numWarmHue.Value);
+            sb.AppendLine("warmSat=" + numWarmSat.Value);
             sb.AppendLine("allScreens=" + (chkAll.Checked ? "1" : "0"));
             sb.AppendLine("autostart=" + (chkAuto.Checked ? "1" : "0"));
             sb.AppendLine("lang=" + L10n.Codes[langIdx]);
@@ -565,6 +602,8 @@ public class MainForm : Form
                     else if (key == "brigain") numBri.Value = Clamp(numBri, decimal.Parse(v, CultureInfo.InvariantCulture));
                     else if (key == "minbri") numMin.Value = Clamp(numMin, decimal.Parse(v, CultureInfo.InvariantCulture));
                     else if (key == "whitethr") numWhite.Value = Clamp(numWhite, decimal.Parse(v, CultureInfo.InvariantCulture));
+                    else if (key == "warmhue") numWarmHue.Value = Clamp(numWarmHue, decimal.Parse(v, CultureInfo.InvariantCulture));
+                    else if (key == "warmsat") numWarmSat.Value = Clamp(numWarmSat, decimal.Parse(v, CultureInfo.InvariantCulture));
                     else if (key == "allscreens") chkAll.Checked = (v == "1");
                     else if (key == "autostart") chkAuto.Checked = (v == "1");
                     else if (key == "lang") langIdx = L10n.Index(v);

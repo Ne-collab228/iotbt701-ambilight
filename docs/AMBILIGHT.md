@@ -48,11 +48,14 @@ sm    += (avg − sm) * k
 | minBri | 8 | brightness floor, % |
 | briGain | 1.4 | brightness multiplier (screens average ~40–60% bright) |
 | whiteThr | 16 | saturation below this value (before white-out) ⇒ **pure white** output. This is the fix for "grey scene → bluish strip": low-sat blue is forced to white |
+| warmHue | 48 | hue of the tint mixed into white output, degrees (amber ≈ 48°) |
+| warmSat | 5 | strength of that tint, %. **Why:** an RGB strip has no calibrated white chip — "white" = R+G+B mixed, and cheap strips are biased cold (visually blue), while a camera's auto white-balance flattens the same light back to grey. A small warm/amber admixture (sat 3–8%) raises R+G and visually neutralises the cast. 0 = off (send clean `sat=0`) |
 | dark scene | val<14 | average value below 14% ⇒ white, dim (night scenes in games are actually dark-blue pixels) |
 
 ```
 sat = clamp(avg_sat * satGain, 0, 100)
-if avg_val < 14  or  sat < whiteThr:  sat=0, hue=0     -> white
+whiteOut = avg_val < 14  or  sat < whiteThr
+if whiteOut:  hue = warmHue (even-quantized), sat = warmSat   -> warm white
 bri = max(minBri, min(100, avg_val * briGain))
 hue: quantized to the nearest EVEN degree (firmware quirk, see PROTOCOL.md)
 ```
@@ -73,8 +76,8 @@ hue: quantized to the nearest EVEN degree (firmware quirk, see PROTOCOL.md)
 ## 6. Persistence & UI
 
 - Settings live in `ambilight_settings.txt` next to the exe
-  (`interval=`, `satGain=`, `briGain=`, `minBri=`, `whiteThr=`, `allScreens=`, `autostart=`,
-  `lang=`).
+  (`interval=`, `satGain=`, `briGain=`, `minBri=`, `whiteThr=`, `warmHue=`, `warmSat=`,
+  `allScreens=`, `autostart=`, `lang=`).
 - **UI languages: Russian, English, Spanish, Chinese (simplified), Portuguese (BR)** —
   the same set as the repo READMEs. A drop-down selector ("Язык / Language", in the
   Settings box) switches every static label, button, status line and the hue-name
@@ -86,10 +89,21 @@ hue: quantized to the nearest EVEN degree (firmware quirk, see PROTOCOL.md)
 - Closing the window stops the loop, disposes the GATT session; the strip keeps
   its last colour and the vendor remote keeps working.
 
-## 7. Known perceptual caveat
+## 7. Known perceptual caveat (and its fix)
 
 LED rendering of low-saturation colours differs from sRGB preview:
 10% blue mixed into white looks plainly "bluish" to the eye in a dark room
-while a camera's auto white-balance flattens it back to grey. This is
-perception, not a bug — the fix is the `whiteThr` parameter (raise it and
-everything under the threshold becomes pure white).
+while a camera's auto white-balance flattens it back to grey. Two separate
+effects stack here:
+
+1. the screen average itself may carry a faint blue tint (fixed by `whiteThr`
+   forcing white), and
+2. the strip's own **white mix is calibrated cold** — with `sat=0` the R+G+B
+   channels are driven equally, but the blue LED visually dominates, so "pure
+   white" still reads bluish on the wall.
+
+Effect 2 is what `warmHue`/`warmSat` correct: a small amber admixture in white
+output shifts the perceived balance back to neutral (like a warm-white lamp).
+Tune it by eye: start at hue 48°, mix 5%, raise the mix until the wall looks
+neutral; too much and the white goes cream/yellow. Camera photos will still
+show near-grey either way — trust the eye on this one.
