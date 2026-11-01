@@ -241,8 +241,8 @@ public class MainForm : Form
         lInterval = MkLabel("", 14, 26);
         grp.Controls.Add(lInterval);
         numInterval = new NumericUpDown();
-        numInterval.Minimum = 200; numInterval.Maximum = 3000;
-        numInterval.Increment = 100; numInterval.Value = 700;
+        numInterval.Minimum = 50; numInterval.Maximum = 3000;
+        numInterval.Increment = 50; numInterval.Value = 700;
         numInterval.Location = new Point(300, 23); numInterval.Size = new Size(90, 24);
         numInterval.ValueChanged += delegate { intervalV = (int)numInterval.Value; };
         grp.Controls.Add(numInterval);
@@ -503,7 +503,11 @@ public class MainForm : Form
                             : string.Format(L10n.S(langIdx, L10n.STRIP), L10n.Hue(langIdx, hue), sat, bri);
                     });
 
-                    if (changed && (DateTime.Now - lastSend).TotalMilliseconds >= 350)
+                    // write gate == sampling interval: one knob controls the rate.
+                    // Measured 2026-11-01 (lednotify rate/soak): writes up to ~17/s
+                    // and even 456/s queue bursts do not break the link or drop
+                    // commands, so the old hardcoded 350 ms was pure over-caution.
+                    if (changed && (DateTime.Now - lastSend).TotalMilliseconds >= intervalV)
                     {
                         if (SendV3Color(hue, sat, bri))
                         {

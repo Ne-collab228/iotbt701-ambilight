@@ -61,8 +61,9 @@ src/                 fontes: GUI AmbilightOT, ledctl de console, scanner BLE,
 
 ## Notas de segurança e etiqueta
 
-- A taxa de escrita é mantida em **≤ ~2,5 comandos/s** (folga ≥ 350 ms); a
-  fita tolera 1–3/s.
+- Taxa de escrita: **verificado até ~17 comandos/s sustentados** (soak de 3,5 min:
+  3600/3600 entregues, enlace estável, sem backlog); rajadas até 456/s na fila sem
+  perdas. O antigo «2,5/s» era cautela excessiva.
 - O app oficial do telefone (Surplife/Zengge) deve estar fechado enquanto a
   ferramenta do PC mantém o enlace; a fita aceita **um único** cliente GATT.
 - Fechar o programa de controle deixa a última cor na fita e devolve o controle

@@ -71,7 +71,8 @@ hue: quantized to the nearest EVEN degree (firmware quirk, see PROTOCOL.md)
 - Predominant hue/sat/bri → `E0 01 00 A1 <hi> <lo> <bri> 00 00 00 00 14 00 00`
   + checksum (see PROTOCOL.md), Write Without Response on FF01.
 - Yellow conference: only send when the value changed meaningfully
-  (hue/sat/bri delta > 2 units) **and** ≥350 ms since the previous write.
+  (hue/sat/bri delta > 2 units) **and** ≥ `interval` ms since the previous
+  write — one knob controls both screen sampling and the write rate.
 - 25-s keepalive re-send of the same colour otherwise.
 - The GUI swatch shows the **exact colour the strip will render**: the HSV values
   are converted back to sRGB (`HsvToColor`) with the same numbers that go into

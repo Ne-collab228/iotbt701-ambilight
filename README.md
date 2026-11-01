@@ -66,7 +66,8 @@ the Settings box: Русский / English / Español / 中文 / Português (BR)
 
 ## Safety / etiquette notes
 
-- BLE write rate kept **≤ ~2.5 writes/s** (≥ 350 ms gap); the strip tolerates 1–3/s.
+- BLE write rate: **verified up to ~17 commands/s sustained** (3.5-min soak: 3600/3600 delivered,
+  link stable, no backlog); bursts of even 456/s queued fine. Old "2.5/s"advices were over-caution.
 - The vendor phone app (Surplife/Zengge) must be closed while the PC tool holds the link;
   the strip accepts **one** GATT client.
 - Closing the control program leaves the last colour on the strip and returns the

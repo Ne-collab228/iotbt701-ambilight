@@ -61,8 +61,9 @@ src/                 fuentes: GUI AmbilightOT, ledctl de consola, escáner BLE,
 
 ## Notas de seguridad y etiqueta
 
-- La tasa de escritura se mantiene en **≤ ~2,5 comandos/s** (brecha ≥ 350 ms);
-  la tira tolera 1–3/s.
+- Tasa de escritura: **verificado hasta ~17 comandos/s sostenidos** (soak de 3,5 min:
+  3600/3600 entregados, enlace estable, sin acumulación); ráfagas incluso de 456/s en cola
+  sin pérdidas. El antiguo «2,5/s» era sobrecautela.
 - La app del teléfono del fabricante (Surplife/Zengge) debe estar cerrada
   mientras la herramienta del PC mantiene el enlace; la tira acepta un solo
   cliente GATT.

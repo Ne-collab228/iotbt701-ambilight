@@ -16,7 +16,13 @@ are inferred from captures of sibling devices in the lednetwf_ble project.
 | Write mode | Write Without Response works **[V]** |
 | Keepalive | `GattSession.MaintainConnection = true` — link holds indefinitely **[V]** |
 | Single client | vendor app must be closed; one GATT client at a time **[V]** |
-| Safe command rate | ≥ 350 ms between writes; 700–900 ms typical **[V]** |
+| Safe command rate | **verified ceiling: sustained 16.9 cmd/s** (soak 3600 cmds × 50 ms over 213 s: 3600/3600 Success, fails 0, link stayed up, no backlog); queue bursts of 100 commands (~456/s) also delivered with no failures. The older "≥ 350 ms" rule was over-caution, not a device limit **[V]** |
+
+Visual confirmation (user's eye, 50 ms rainbow soak): colours arrive in order
+and render instantly; the strip has no internal smoothing, so discrete hue
+steps read as slight "jumps" — that is quantization of the source, not lost
+commands. For ambilight duty the EMA smoothing on the PC side already hides
+this.
 | Disconnect behaviour | closing the app leaves current state on the strip; IR/remote resumes **[V]** |
 
 Windows specifics: a console C# program (.NET Framework 4.8, `csc.exe`) can drive
