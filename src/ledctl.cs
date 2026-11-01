@@ -227,7 +227,10 @@ static class Led
         if (hueDeg < 0) hueDeg = 0;
         if (hueDeg > 359) hueDeg = hueDeg % 360;
         if (briPct < 1) briPct = 1;
-        if (briPct > 100) briPct = 100;
+        if (briPct > 100) briPct = 100;   // brightness byte is a 0-100 PERCENT.
+                                          // Values >100 accepted but corrupt colour
+                                          // (yellow-green shift, non-monotonic) - verified
+                                          // by ladder experiments + notify feedback, 2026-11-01.
         byte hi, lo;
         PackHueSat(hueDeg, satPct, out hi, out lo);
         return Send(new byte[] { 0xE0, 0x01, 0x00, 0xA1, hi, lo, (byte)briPct,

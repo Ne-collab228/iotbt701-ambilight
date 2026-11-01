@@ -25,7 +25,8 @@ open-source [8none1/lednetwf_ble](https://github.com/8none1/lednetwf_ble)
 | Color (tono 0..359, barrido de 12 colores + uso prolongado) | ✅ verificado | **`E0 01 00 A1` (colour_data_v3)** |
 | Conversión RGB → HSV | ✅ verificado | helpers C# en este repo |
 | Ambilight (color medio de pantalla → tira, GUI, ajustes) | ✅ verificado | `AmbilightOT.exe` |
-| Notificación/lectura de estado (FF02) | ⚠ parcial (llegan eventos, payload vacío) | característica `FF02` |
+| Notificación/lectura de estado (FF02) | ✅ verificado (consulta `81 8A 8B 40` en familia `0x0A`; trama de estado `EA 81 … F0 <tono> <sat> <brillo>`; los registros reflejan solo el estado de la app del teléfono) | característica `FF02` |
+| Escala de brillo | ✅ verificado: el byte = **porcentaje 0..100**; valores >100 corrompen el color | byte de brillo v3 |
 
 **Hallazgo clave no evidente:** el dispositivo **ignora todos los comandos de
 color clásicos** (`31/41/42/46 R G B ...`, y `3B A1 <hue> <sat> <bri>` siempre
@@ -54,7 +55,8 @@ src/                 fuentes: GUI AmbilightOT, ledctl de consola, escáner BLE,
 | Programa | Propósito |
 |---|---|
 | `AmbilightOT.exe` | Ambilight: captura el monitor principal ~1,4 veces/s, calcula el color dominante y controla la tira. GUI WinForms con vista previa del color en vivo y ajustes. Suitable para atajos (cerrar la ventana = la tira conserva el color y el mando vuelve a funcionar) |
-| `ledctl.exe` | Probador de consola: `on`, `off`, `white`, `rgb R G B`, `hsv H S B`, barrido de 12 colores |
+| `ledctl.exe` | Probador de consola: `on`, `off`, `white`, `rgb R G B`, `hsv H S B`, barrido de 12 colores (brillo clampado a 0–100 %) |
+| `lednotify.exe` | Retroalimentación FF02: `query` pide el estado, `ladder`/`l0a` experimentos de brillo con lectura, `listen` escucha eventos de remoto/app |
 | `blescan.exe` | Escáner de anuncios BLE, 25 s |
 
 ## Notas de seguridad y etiqueta

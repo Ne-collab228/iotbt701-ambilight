@@ -73,7 +73,7 @@ Bytes 2–8 are zero, byte 9 = `0x32`, bytes 10–11 zero (constant template).
 | 3 | `0xA1` | mode byte (solid colour) |
 | 4 | hue high byte | see packing below |
 | 5 | hue low / sat packed | see packing below |
-| 6 | brightness | 0..100, scale `%`; firmware floors at 1 |
+| 6 | brightness | 0..100, scale `%`; firmware floors at 1; **values > 100 corrupt colour** (yellow-green shift, non-monotonic output) — verified by brightness ladder + strip's own notify feedback **[V]** |
 | 7–10 | `00 00 00 00` | constant tail |
 | 11 | `0x14` | transition/gradient parameter (constant in app captures) |
 | 12–13 | `00 00` | |
@@ -124,18 +124,87 @@ Examples (sat=100): 0° → `00 64`; 60° → `1E 64`; 240° → `78 64`.
 42 R G B 00 00 F0 0F
 46 R G B 00 00
 3B A1 <hi> <lo> <bri> ...  with hue != 0
+3B 01 00 00 <p> 00 <p> ...      standalone brightness — accepted (Success) but
+                                has NO physical effect on this unit
 ```
 
-### 3.6 Other commands (from vendor captures, not exercised here) [I]
+The legacy `3B A1` form also physically accepts saturated colours (cyan was
+displayed), so it is *not fully* dead — but it never updates the state
+registers (see §3.6), while `E0 01` v3 is the form the vendor app itself uses.
 
-| Purpose | Payload |
+### 3.6 State query + notify feedback [V]
+
+Verified 2026-11-01 with a dedicated listener (`src/lednotify.cs`, mode
+`query`):
+
+**Request** — write to FF01, transport family **`0x0A`** (query channel),
+**no checksum**; this exact frame is from the lednetwf_ble docs:
+
+```
+00 <seq> 80 00 00 04 05 0A 81 8A 8B 40
+```
+
+A variant with checksum appended (`... 81 8A 8B <csum>`) also succeeds.
+
+**Response** — the strip pushes a notify on FF02 (and also keeps the value on
+the FF02 attribute, so a plain `ReadValueAsync` works even when the change
+event is not deliverable). Example from this unit (while orange 20° 100/100
+was set):
+
+```
+04 <seq> 80 00 00 1B 1C 15 EA 81 01 00 AD 0A 23 25 6E 37 F0 00 64 64 00 00 01 00 64 FF FF FF FF 02 00 00 00
+\___transport header___/  \_______inner status frame________________________________________________/
+```
+
+Inner frame layout (matches lednetwf_ble PR #101 sample):
+
+| Offset (inner) | Meaning |
 |---|---|
-| Query state | `81 8A 8B 40` (14-byte reply hoped on FF02) |
-| Brightness | `47 <percent>` |
-| Scene | `38 <mode> <speed> <bright>` |
-| v3 scene | `E0 02 ...` |
+| 0–1 | `EA 81` status marker |
+| 2–3 | version/flags (`01 00` on this unit, `00 00` on the sibling) |
+| 4 | device-specific byte |
+| 5 | `0x0A` — query-channel echo |
+| 6–9 | 4 device-specific bytes (not MAC-dependent here) |
+| 10 | `0xF0` marker |
+| 11–13 | hue, saturation, brightness **as stored in the strip's registers** (percent scale, `0x64`=100) |
 
-## 4. Host-side usage pattern (Windows)
+Decoding: locate `EA 81`, then the `09 F0`-adjacent triplet
+`F0 <hue> <sat> <bri>`; see `DecodeStatus()` in `src/lednotify.cs`.
+
+**Important limitation discovered on this unit**: the registers (and there­fore
+the status frames) are **NOT updated by our commands**. Neither v3 colour
+frames nor classic `3B A1 HSV` frames change the reported hue/sat/bri — the
+registers keep the state that the **vendor phone app** last wrote (they stayed
+`00 64 64` = "red 100/100" through every experiment). The physical colour
+changes even though the registers do not.
+
+So the feedback channel is reliable as a **"is the strip responsive" heartbeat
+and a connect-time snapshot from the app**, but cannot be used as a live
+mirror of commands issued from Windows.
+
+WinRT reflection notes for listeners (console C#, no SDK packs):
+`GattValueChangedEventArgs` property is `CharacteristicValue`; the projected
+`GattCharacteristic.Value` property is not reachable via reflection — instead
+call `ReadValueAsync` and convert the buffer with
+`WindowsRuntimeBufferExtensions.ToArray` (single-argument overload), both via
+reflection.
+
+## 4. Brightness scale — final verdict [V]
+
+The brightness byte is a **percentage 0..100**. Values above 100 are delivered
+(write returns `Success`) but the firmware's internal scaling breaks:
+
+| sent bri | visual result |
+|---|---|
+| 1..100 | correct, monotonic |
+| ~120–150 | yellow-green contamination |
+| ~200–255 | darker than 150, still contaminated |
+
+Determined empirically by a stepped ladder plus the user's eye observations;
+matches the 0–100 percent scale documented in every brightness field of the
+lednetwf_ble protocol docs (`0x3B 0x01`, `0x3B 0xA1`, CCT brightness).
+
+## 5. Host-side usage pattern (Windows)
 
 1. `BluetoothLEDevice.FromBluetoothAddressAsync(0x0865F0DE3701)`.
 2. `GattSession.FromDeviceIdAsync(...)`, set `MaintainConnection=true`, wait `Connected`.
@@ -143,13 +212,13 @@ Examples (sat=100): 0° → `00 64`; 60° → `1E 64`; 240° → `78 64`.
 4. On write failure: dispose device/session, reconnect from step 1 (the strip
    recovers on its own; a retry every ~6–10 s is enough).
 
-## 5. RGB→HSV reference used
+## 6. RGB→HSV reference used
 
 Standard max/min formulation; hue 0–359, saturation/val 0–100 mapped directly
 onto the protocol percent bytes. See `src/ambilight_gui.cs` (`RgbToHsv`,
 `PackHueSat`, `SendV3Color`) for the single source of truth.
 
-## 6. Attribution
+## 7. Attribution
 
 All framing/encoding knowledge is built on the reverse-engineering work in
 [8none1/lednetwf_ble](https://github.com/8none1/lednetwf_ble)

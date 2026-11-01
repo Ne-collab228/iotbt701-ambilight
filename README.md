@@ -23,7 +23,8 @@ Home Assistant integration plus our own captures on this specific unit.
 | Colour (hue 0..359, 12-colour sweep + long use) | ✅ verified | **`E0 01 00 A1` (colour_data_v3)** |
 | RGB → HSV conversion | ✅ verified | C# helpers in this repo |
 | Ambilight (screen average → strip, GUI, settings) | ✅ verified | `AmbilightOT.exe` |
-| Notify/state readback (FF02) | ⚠ partially (events arrive, payload empty) | char `FF02` |
+| Notify/state readback (FF02) | ✅ verified (query `81 8A 8B 40` in family `0x0A`; status frame `EA 81 … F0 <hue> <sat> <bri>`; registers mirror the *vendor app* state only) | char `FF02` |
+| Brightness scale | ✅ verified: byte = **percent 0..100**; values >100 corrupt colour | v3 brightness byte |
 
 **Key non-obvious finding:** this device **ignores every classic colour command**
 (`31/41/42/46 R G B ...`, and `3B A1 <hue> <sat> <bri>` whenever hue ≠ 0).
@@ -59,7 +60,8 @@ the Settings box: Русский / English / Español / 中文 / Português (BR)
 | Program | Purpose |
 |---|---|
 | `AmbilightOT.exe` | Ambilight: screens the primary monitor ~1.4×/s, computes the dominant colour, drives the strip. WinForms GUI with live colour preview and settings (UI languages: RU/EN/ES/ZH-CN/PT-BR, switchable in the window). Shortcut-friendly (close window = strip keeps colour, remote control resumes) |
-| `ledctl.exe` | Console tester: `on`, `off`, `white`, `rgb R G B`, `hsv H S B`, 12-colour sweep |
+| `ledctl.exe` | Console tester: `on`, `off`, `white`, `rgb R G B`, `hsv H S B`, 12-colour sweep (brightness clamped to the verified 0–100 % scale) |
+| `lednotify.exe` | FF02 state feedback: `query` asks the strip for its status frame, `ladder`/`l0a` run brightness experiments with readback, `listen` watches remote/app events |
 | `blescan.exe` | 25 s BLE advertisement scanner |
 
 ## Safety / etiquette notes
