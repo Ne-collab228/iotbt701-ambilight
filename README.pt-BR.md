@@ -25,6 +25,7 @@ Home Assistant), além das nossas próprias capturas nesta unidade.
 | Cor (matiz 0..359, varredura de 12 cores + uso contínuo) | ✅ verificado | **`E0 01 00 A1` (colour_data_v3)** |
 | Conversão RGB → HSV | ✅ verificado | helpers C# neste repositório |
 | Ambilight (cor média da tela → fita, GUI, ajustes) | ✅ verificado | `AmbilightOT.exe` |
+| Integração na inicialização + registro de falhas (v1.5) | ✅ verificado | caixa de autostart + `ambilight_log.txt` + janela automática «LINK LOST» |
 | Notificação/leitura de estado (FF02) | ✅ verificado (consulta `81 8A 8B 40` na família `0x0A`; quadro de estado `EA 81 … F0 <matiz> <sat> <brilho>`; os registradores reflejam só o estado do app do celular) | característica `FF02` |
 | Escala de brilho | ✅ verificado: o byte = **porcentagem 0..100**; valores >100 corrompem a cor | byte de brilho v3 |
 
@@ -46,6 +47,7 @@ README.md            este arquivo (inglês)
 docs/PROTOCOL.md     protocolo byte a byte: frames, checksum, comandos, peculiaridades
 docs/AMBILIGHT.md    como a cor média da tela é extraída, todas as constantes
 docs/BUILDING.md     como os .exe são compilados (sem Visual Studio, compilador C# 5)
+docs/reports/        relatórios analíticos do projeto em PDF ×5 (EN/RU/ES/ZH-CN/PT-BR)
 src/                 fontes: GUI AmbilightOT, ledctl de console, scanner BLE,
                      scripts de build
 ```
@@ -54,7 +56,7 @@ src/                 fontes: GUI AmbilightOT, ledctl de console, scanner BLE,
 
 | Programa | Propósito |
 |---|---|
-| `AmbilightOT.exe` | Ambilight: captura o monitor principal ~1,4×/s, calcula a cor dominante e controla a fita. GUI WinForms com pré-visualização da cor em tempo real e ajustes. Adequada a atalho (fechar a janela = a fita mantém a cor e o controle remoto volta a funcionar) |
+| `AmbilightOT.exe` | Ambilight: captura o monitor principal ~1,4×/s, calcula a cor dominante e controla a fita. GUI WinForms com pré-visualização da cor em tempo real e ajustes. Adequada a atalho (fechar a janela = a fita mantém a cor e o controle remoto volta a funcionar). **v1.5:** caixa «iniciar com Windows» (atalho em shell:startup), arquivo `ambilight_log.txt` com precisão de ms e rotação de 512 KB, botão «registro de conexão», e janela automática com o log completo **LINK LOST** se a fita cair sozinha |
 | `ledctl.exe` | Testador de console: `on`, `off`, `white`, `rgb R G B`, `hsv H S B`, varredura de 12 cores (brilho limitado a 0–100 %) |
 | `lednotify.exe` | Retroalimentação FF02: `query` pede o estado, `ladder`/`l0a` experimentos de brilho com leitura, `listen` observa eventos de controle/app |
 | `blescan.exe` | Scanner de anúncios BLE, 25 s |

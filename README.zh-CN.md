@@ -23,6 +23,7 @@ App、无需配对、无需云端**即可直接驱动，并附带现成的 **Amb
 | 彩色（色相 0..359，12 色循环扫描 + 长期日常使用） | ✅ 已验证 | **`E0 01 00 A1`（colour_data_v3）** |
 | RGB → HSV 转换 | ✅ 已验证 | 本仓库中的 C# 辅助函数 |
 | Ambilight（屏幕平均色 → 灯带，GUI，可调参数） | ✅ 已验证 | `AmbilightOT.exe` |
+| 开机自启 + 故障日志（v1.5） | ✅ 已验证 | 自启动复选框 + `ambilight_log.txt` + 自动弹出「LINK LOST」窗口 |
 | Notify / 状态回读（FF02） | ✅ 已验证（用 `0x0A` 族发送查询 `81 8A 8B 40`；状态帧 `EA 81 … F0 <色相> <饱和度> <亮度>`；寄存器只反映手机 App 的状态） | 特征 `FF02` |
 | 亮度刻度 | ✅ 已验证：该字节 = **百分比 0..100**；>100 会破坏颜色 | v3 亮度字节 |
 
@@ -43,6 +44,7 @@ README.md            本文件（英文）
 docs/PROTOCOL.md     逐字节协议：帧格式、校验和、命令、固件怪癖
 docs/AMBILIGHT.md    屏幕主色的提取算法与全部常量
 docs/BUILDING.md     如何不使用 Visual Studio 构建 .exe（C# 5 编译器）
+docs/reports/        项目分析报告 PDF ×5（EN/RU/ES/ZH-CN/PT-BR）
 src/                 源码：AmbilightOT GUI、命令行 ledctl、BLE 扫描器、
                      构建脚本
 ```
@@ -51,7 +53,7 @@ src/                 源码：AmbilightOT GUI、命令行 ledctl、BLE 扫描器
 
 | 程序 | 用途 |
 |---|---|
-| `AmbilightOT.exe` | Ambilight：以约每秒 1.4 次捕获主显示器，计算主导颜色并驱动灯带。WinForms 界面带实时颜色预览与参数设置。适合快捷键方式使用（关掉窗口 → 灯带保持颜色，遥控器恢复工作） |
+| `AmbilightOT.exe` | Ambilight：以约每秒 1.4 次捕获主显示器，计算主导颜色并驱动灯带。WinForms 界面带实时颜色预览与参数设置。适合快捷键方式使用（关掉窗口 → 灯带保持颜色，遥控器恢复工作）。**v1.5：**「随 Windows 启动」复选框（shell:startup 快捷方式）、精确到毫秒的 `ambilight_log.txt`（512 KB 轮转）、「连接日志」按钮，以及灯带自行掉线时自动弹出完整日志的 **LINK LOST** 窗口 |
 | `ledctl.exe` | 命令行测试器：`on`、`off`、`white`、`rgb R G B`、`hsv H S B`、12 色循环扫描（亮度钳制在 0–100 %） |
 | `lednotify.exe` | FF02 状态反馈：`query` 请求状态帧，`ladder`/`l0a` 带回读的亮度实验，`listen` 监听遥控/App 事件 |
 | `blescan.exe` | BLE 广播扫描器，25 秒 |

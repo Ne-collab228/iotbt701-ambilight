@@ -38,7 +38,7 @@ public static class L10n
         START = 5, STOP = 6, SETTINGS = 7, INTERVAL = 8, SAT = 9, BRI = 10,
         MINBRI = 11, WHITE = 12, ALLMON = 13, AUTOSTART = 14, CONNECTING = 15,
         CONNECTED = 16, STOPPED = 17, SCREEN = 18, STRIP = 19, WHITEF = 20,
-        SENT = 21, LANG = 22, WARMHUE = 23, WARMSAT = 24;
+        SENT = 21, LANG = 22, WARMHUE = 23, WARMSAT = 24, BOOT = 25, LOG = 26;
 
     static readonly string[][] T =
     {
@@ -55,7 +55,9 @@ public static class L10n
                 "экран {0}x{1}",
                 "лента: {0}  s{1}%  b{2}%", "лента: БЕЛЫЙ  b{0}%",
                 "отправлено: {0}", "Язык / Language",
-                "тёплая поправка: тон °", "тёплая поправка %" },
+                "тёплая поправка: тон °", "тёплая поправка %",
+                "запускать с Windows",
+                "лог подключений" },
         // 1: English
         new []{ "Ambilight OT — strip mirrors the screen",
                 "strip: waiting to start", "screen average: -",
@@ -69,7 +71,9 @@ public static class L10n
                 "screen {0}x{1}",
                 "strip: {0}  s{1}%  b{2}%", "strip: WHITE  b{0}%",
                 "sent: {0}", "Language",
-                "warm white: hue °", "warm white: mix %" },
+                "warm white: hue °", "warm white: mix %",
+                "run at Windows startup",
+                "connection log" },
         // 2: Spanish
         new []{ "Ambilight OT — la tira refleja la pantalla",
                 "tira: en espera", "color medio de pantalla: -",
@@ -83,7 +87,9 @@ public static class L10n
                 "pantalla {0}x{1}",
                 "tira: {0}  s{1}%  b{2}%", "tira: BLANCO  b{0}%",
                 "enviado: {0}", "Idioma",
-                "blanco cálido: tono °", "mezcla cálida %" },
+                "blanco cálido: tono °", "mezcla cálida %",
+                "iniciar con Windows",
+                "registro de conexión" },
         // 3: Chinese (simplified)
         new []{ "Ambilight OT — 灯带同步屏幕",
                 "灯带：等待启动", "屏幕平均色：-",
@@ -97,7 +103,9 @@ public static class L10n
                 "屏幕 {0}x{1}",
                 "灯带：{0}  s{1}%  b{2}%", "灯带：白色  亮度{0}%",
                 "已发送：{0}", "语言",
-                "暖白修正：色调 °", "暖白强度 %" },
+                "暖白修正：色调 °", "暖白强度 %",
+                "随 Windows 启动",
+                "连接日志" },
         // 4: Portuguese (Brazil)
         new []{ "Ambilight OT — fita espelha a tela",
                 "fita: aguardando início", "cor média da tela: -",
@@ -111,7 +119,9 @@ public static class L10n
                 "tela {0}x{1}",
                 "fita: {0}  s{1}%  b{2}%", "fita: BRANCO  b{0}%",
                 "enviado: {0}", "Idioma",
-                "branco quente: tom °", "mistura quente %" },
+                "branco quente: tom °", "mistura quente %",
+                "iniciar com o Windows",
+                "log de conexão" },
     };
 
     public static string S(int lang, int key)
@@ -179,7 +189,18 @@ public class MainForm : Form
     Label lInterval, lSat, lBri, lMin, lWhite, lLang, lWarm1, lWarm2;
     ComboBox comboLang;
     Button btnStart;
-    CheckBox chkAll, chkAuto;
+    CheckBox chkAll, chkAuto, chkBoot;
+    Button btnLog;
+
+    // users Startup folder shortcut definition
+    static readonly string BootLnkPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.Startup), "AmbilightOT.lnk");
+
+    // persistent log (full connection history, for the crash window)
+    static readonly string LogPath = Path.Combine(
+        AppDomain.CurrentDomain.BaseDirectory, "ambilight_log.txt");
+    static readonly object logLock = new object();
+    bool hadLink = false;          // a live connection existed and then died on its own
     NumericUpDown numInterval, numSat, numBri, numMin, numWhite, numWarmHue, numWarmSat;
     TextBox txtLog;
     GroupBox grp;
@@ -314,6 +335,27 @@ public class MainForm : Form
         chkAuto.CheckedChanged += delegate { SaveSettings(); };
         grp.Controls.Add(chkAuto);
 
+        // run at Windows startup: the .lnk in the user's Startup folder is the single
+        // source of truth (checked if it exists; toggling creates/deletes it)
+        chkBoot = new CheckBox();
+        chkBoot.Location = new Point(404, 134); chkBoot.AutoSize = true;
+        chkBoot.Checked = File.Exists(BootLnkPath);
+        chkBoot.CheckedChanged += delegate
+        {
+            try
+            {
+                if (chkBoot.Checked) CreateBootShortcut(); else DeleteBootShortcut();
+            }
+            catch (Exception ex) { Log("startup shortcut: " + ex.Message); }
+        };
+        grp.Controls.Add(chkBoot);
+
+        // connection log button (full log incl. crash/disconnect events)
+        btnLog = new Button();
+        btnLog.Location = new Point(404, 160); btnLog.Size = new Size(120, 26);
+        btnLog.Click += delegate { ShowLogWindow(false); };
+        grp.Controls.Add(btnLog);
+
         // ----- language selector (same 5 as the repo READMEs) -----
         lLang = MkLabel("", 404, 84);
         grp.Controls.Add(lLang);
@@ -361,6 +403,8 @@ public class MainForm : Form
         lLang.Text = L10n.S(langIdx, L10n.LANG);
         chkAll.Text = L10n.S(langIdx, L10n.ALLMON);
         chkAuto.Text = L10n.S(langIdx, L10n.AUTOSTART);
+        chkBoot.Text = L10n.S(langIdx, L10n.BOOT);
+        btnLog.Text = L10n.S(langIdx, L10n.LOG);
         btnStart.Text = running ? L10n.S(langIdx, L10n.STOP) : L10n.S(langIdx, L10n.START);
         if (!running)
         {
@@ -376,6 +420,22 @@ public class MainForm : Form
         Label l = new Label();
         l.Text = t; l.Location = new Point(x, y); l.AutoSize = true;
         return l;
+    }
+
+    // ----- run-at-Windows-startup shortcut (shell:startup\AmbilightOT.lnk) -----
+    static void CreateBootShortcut()
+    {
+        dynamic wsh = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell"));
+        dynamic lnk = wsh.CreateShortcut(BootLnkPath);
+        lnk.TargetPath = Application.ExecutablePath;
+        lnk.WorkingDirectory = Path.GetDirectoryName(Application.ExecutablePath);
+        lnk.Description = "Ambilight for IOTBT701 LED strip";
+        lnk.Save();
+    }
+
+    static void DeleteBootShortcut()
+    {
+        if (File.Exists(BootLnkPath)) File.Delete(BootLnkPath);
     }
 
     void PushUItoVolatile()
@@ -451,6 +511,7 @@ public class MainForm : Form
                     if (!Connect()) { Thread.Sleep(6000); continue; }
                     if (!Send(new byte[] { 0x3B, 0x23, 0, 0, 0, 0, 0, 0, 0, 0x32, 0, 0 }, "power on"))
                     { Drop(); Thread.Sleep(4000); continue; }
+                    hadLink = true;                 // link proven alive
                     lastH = -999; lastS = -999; lastB = -999;
                     smR = smG = smB = -1;
                     UiSafe(delegate { lblStatus.Text = L10n.S(langIdx, L10n.CONNECTED); });
@@ -516,13 +577,13 @@ public class MainForm : Form
                             UiSafe(delegate { lblLastSend.Text =
                                 string.Format(L10n.S(langIdx, L10n.SENT), DateTime.Now.ToString("HH:mm:ss")); });
                         }
-                        else Drop();
+                        else OnLinkLost("color write failed");   // was: Drop()
                     }
                     else if (!changed && (DateTime.Now - lastSend).TotalSeconds > 25)
                     {
                         if (SendV3Color(hue, sat, bri))
                         { lastSend = DateTime.Now; lastH = hue; lastS = sat; lastB = bri; }
-                        else Drop();
+                        else OnLinkLost("keepalive write failed"); // was: Drop()
                     }
                 }
                 catch (Exception ex)
@@ -556,6 +617,25 @@ public class MainForm : Form
 
     void Log(string m)
     {
+        string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + "  " + m;
+        try
+        {
+            // persistent copy of the whole session (survives crashes, needed for
+            // the "link died on its own" crash window and for bug reports)
+            lock (logLock)
+            {
+                FileInfo fi = new FileInfo(LogPath);
+                if (fi.Exists && fi.Length > 512 * 1024)          // rotate at 512 KB
+                {
+                    string all = File.ReadAllText(LogPath, Encoding.UTF8);
+                    File.WriteAllText(LogPath,
+                        all.Substring(Math.Min(all.Length / 2, all.Length - 256 * 1024)),
+                        Encoding.UTF8);
+                }
+                File.AppendAllText(LogPath, line + Environment.NewLine, Encoding.UTF8);
+            }
+        }
+        catch { }
         UiSafe(delegate
         {
             txtLog.AppendText(DateTime.Now.ToString("HH:mm:ss ") + m + Environment.NewLine);
@@ -565,6 +645,35 @@ public class MainForm : Form
                     txtLog.Lines, txtLog.Lines.Length - 200, 200);
             }
         });
+    }
+
+    // called when a previously-alive connection dies on its own
+    void OnLinkLost(string why)
+    {
+        Log("LINK LOST: " + why);
+        Drop();
+        if (hadLink)                     // true self-disconnect (not the initial login)
+        {
+            hadLink = false;
+            Log("auto-reconnect will try every 6 s; full log opened");
+            UiSafe(delegate { ShowLogWindow(true); });
+        }
+    }
+
+    void ShowLogWindow(bool autoCrash)
+    {
+        try
+        {
+            string content = LogPath;
+            string tail = "(log file is not yet written)";
+            try { tail = File.ReadAllText(LogPath, Encoding.UTF8); } catch { }
+            if (tail.Length > 200 * 1024) tail = "... (earlier half cut) " + Environment.NewLine
+                                                + tail.Substring(tail.Length - 200 * 1024);
+            LogForm f = new LogForm(content, tail, autoCrash);
+            f.Show(this);
+            f.BringToFront();
+        }
+        catch { }
     }
 
     // ----- settings ini -----
@@ -834,5 +943,56 @@ public class MainForm : Form
             if (w <= 0 || h <= 0) { x = 0; y = 0; w = GetSystemMetrics(0); h = GetSystemMetrics(1); }
         }
         else { x = 0; y = 0; w = GetSystemMetrics(0); h = GetSystemMetrics(1); }
+    }
+}
+
+// full-log viewer; opens automatically on a self-disconnect, or via the
+// "connection log" button in Settings
+public class LogForm : Form
+{
+    public LogForm(string logPath, string content, bool autoCrash)
+    {
+        Text = "AmbilogOT — " + (autoCrash
+            ? "LINK LOST (auto-opened)"
+            : "connection log");
+        Size = new Size(780, 520);
+        StartPosition = FormStartPosition.CenterScreen;
+
+        var txt = new TextBox();
+        txt.Multiline = true; txt.ReadOnly = true; txt.WordWrap = false;
+        txt.ScrollBars = ScrollBars.Both;
+        txt.Font = new Font("Consolas", 9);
+        txt.Dock = DockStyle.Fill;
+        txt.Text = content;
+        txt.SelectionStart = txt.Text.Length;   // scroll to the latest entries
+        txt.ScrollToCaret();
+
+        var bar = new Panel();
+        bar.Dock = DockStyle.Bottom; bar.Height = 38;
+        var btnCopy = new Button();
+        btnCopy.Text = "Copy log";
+        btnCopy.Dock = DockStyle.Left; btnCopy.Width = 120;
+        btnCopy.Click += delegate
+        {
+            try { Clipboard.SetText(txt.Text); btnCopy.Text = "Copied!"; }
+            catch { }
+        };
+        var btnOpen = new Button();
+        btnOpen.Text = "Show file";
+        btnOpen.Dock = DockStyle.Right; btnOpen.Width = 120;
+        btnOpen.Click += delegate
+        {
+            try
+            {
+                System.Diagnostics.Process.Start("explorer.exe",
+                    "/select,\"" + logPath + "\"");
+            }
+            catch { }
+        };
+        bar.Controls.Add(btnOpen);
+        bar.Controls.Add(btnCopy);
+
+        Controls.Add(txt);
+        Controls.Add(bar);
     }
 }
