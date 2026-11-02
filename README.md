@@ -61,7 +61,7 @@ the Settings box: Русский / English / Español / 中文 / Português (BR)
 
 | Program | Purpose |
 |---|---|
-| `AmbilightOT.exe` | Ambilight: screens the primary monitor ~1.4×/s, computes the dominant colour, drives the strip. WinForms GUI with live colour preview and settings (UI languages: RU/EN/ES/ZH-CN/PT-BR, switchable in the window). Shortcut-friendly (close window = strip keeps colour, remote control resumes). **v1.5:** "run at Windows startup" checkbox (shell:startup shortcut), ms-precise `ambilight_log.txt` with 512 KB rotation, "connection log" button, and an auto-popup full-log window **LINK LOST** when the strip drops on its own |
+| `AmbilightOT.exe` | Ambilight: screens the primary monitor ~1.4×/s, computes the dominant colour, drives the strip. WinForms GUI with live colour preview and settings (UI languages: RU/EN/ES/ZH-CN/PT-BR, switchable in the window). Shortcut-friendly (close window = strip keeps colour, remote control resumes). **v1.5:** "run at Windows startup" checkbox (shell:startup shortcut), ms-precise `ambilight_log.txt` with 512 KB rotation, "connection log" button, and an auto-popup full-log window **LINK LOST** when the strip drops on its own. **v1.6:** smooth colour fade — writes glide toward the target in steps (setting 1–6 frames, 1 = the old snap) |
 | `ledctl.exe` | Console tester: `on`, `off`, `white`, `rgb R G B`, `hsv H S B`, 12-colour sweep (brightness clamped to the verified 0–100 % scale) |
 | `lednotify.exe` | FF02 state feedback: `query` asks the strip for its status frame, `ladder`/`l0a` run brightness experiments with readback, `listen` watches remote/app events |
 | `blescan.exe` | 25 s BLE advertisement scanner |
