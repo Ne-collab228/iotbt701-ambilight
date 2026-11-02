@@ -1,5 +1,6 @@
 // AmbilightOT GUI - screen average -> LED strip IOTBT701, with settings window
 // Protocol: colour_data_v3 = E0 01 00 A1 <hi> <lo> <bri> 00 00 00 00 14 00 00 + checksum
+// v1.6: smooth colour fade (numFade frames per gap; 1 = old teleport snap)
 // Fits desk shortcut Ambilight.lnk (winexe = no console window).
 // C#5-safe code (csc.exe): no string interpolation, no ?. on methods.
 using System;
@@ -38,7 +39,8 @@ public static class L10n
         START = 5, STOP = 6, SETTINGS = 7, INTERVAL = 8, SAT = 9, BRI = 10,
         MINBRI = 11, WHITE = 12, ALLMON = 13, AUTOSTART = 14, CONNECTING = 15,
         CONNECTED = 16, STOPPED = 17, SCREEN = 18, STRIP = 19, WHITEF = 20,
-        SENT = 21, LANG = 22, WARMHUE = 23, WARMSAT = 24, BOOT = 25, LOG = 26;
+        SENT = 21, LANG = 22, WARMHUE = 23, WARMSAT = 24, BOOT = 25, LOG = 26,
+        FADE = 27;
 
     static readonly string[][] T =
     {
@@ -57,7 +59,8 @@ public static class L10n
                 "отправлено: {0}", "Язык / Language",
                 "тёплая поправка: тон °", "тёплая поправка %",
                 "запускать с Windows",
-                "лог подключений" },
+                "лог подключений",
+                "плавный переход, кадров (1 = резко)" },
         // 1: English
         new []{ "Ambilight OT — strip mirrors the screen",
                 "strip: waiting to start", "screen average: -",
@@ -73,7 +76,8 @@ public static class L10n
                 "sent: {0}", "Language",
                 "warm white: hue °", "warm white: mix %",
                 "run at Windows startup",
-                "connection log" },
+                "connection log",
+                "smooth fade, frames (1 = snap)" },
         // 2: Spanish
         new []{ "Ambilight OT — la tira refleja la pantalla",
                 "tira: en espera", "color medio de pantalla: -",
@@ -89,7 +93,8 @@ public static class L10n
                 "enviado: {0}", "Idioma",
                 "blanco cálido: tono °", "mezcla cálida %",
                 "iniciar con Windows",
-                "registro de conexión" },
+                "registro de conexión",
+                "transición suave, fotogramas (1 = brusco)" },
         // 3: Chinese (simplified)
         new []{ "Ambilight OT — 灯带同步屏幕",
                 "灯带：等待启动", "屏幕平均色：-",
@@ -105,7 +110,8 @@ public static class L10n
                 "已发送：{0}", "语言",
                 "暖白修正：色调 °", "暖白强度 %",
                 "随 Windows 启动",
-                "连接日志" },
+                "连接日志",
+                "平滑过渡，帧（1 = 瞬间）" },
         // 4: Portuguese (Brazil)
         new []{ "Ambilight OT — fita espelha a tela",
                 "fita: aguardando início", "cor média da tela: -",
@@ -121,7 +127,8 @@ public static class L10n
                 "enviado: {0}", "Idioma",
                 "branco quente: tom °", "mistura quente %",
                 "iniciar com o Windows",
-                "log de conexão" },
+                "log de conexão",
+                "transição suave, quadros (1 = seco)" },
     };
 
     public static string S(int lang, int key)
@@ -179,6 +186,7 @@ public class MainForm : Form
     volatile int warmHueV = 48;    // warm-white correction: amber hue, 0..120
     volatile int warmSatV = 5;     // warm-white mix strength %, 0 = off
     double briGainV = 1.4;
+    volatile int fadeV = 3;        // smooth-fade step count toward the target: 1 = snap, >1 = glide
     volatile bool captureAllV = false;
     Bitmap big = null, small = null;
     Graphics gBig = null, gS = null;
@@ -186,7 +194,7 @@ public class MainForm : Form
     // ----- UI -----
     Panel preview;
     Label lblAvg, lblStrip, lblStatus, lblLastSend;
-    Label lInterval, lSat, lBri, lMin, lWhite, lLang, lWarm1, lWarm2;
+    Label lInterval, lSat, lBri, lMin, lWhite, lLang, lWarm1, lWarm2, lFade;
     ComboBox comboLang;
     Button btnStart;
     CheckBox chkAll, chkAuto, chkBoot;
@@ -201,7 +209,7 @@ public class MainForm : Form
         AppDomain.CurrentDomain.BaseDirectory, "ambilight_log.txt");
     static readonly object logLock = new object();
     bool hadLink = false;          // a live connection existed and then died on its own
-    NumericUpDown numInterval, numSat, numBri, numMin, numWhite, numWarmHue, numWarmSat;
+    NumericUpDown numInterval, numSat, numBri, numMin, numWhite, numWarmHue, numWarmSat, numFade;
     TextBox txtLog;
     GroupBox grp;
 
@@ -256,7 +264,7 @@ public class MainForm : Form
         // ----- settings -----
         grp = new GroupBox();
         grp.Location = new Point(16, 206);
-        grp.Size = new Size(528, 240);
+        grp.Size = new Size(528, 272);
         Controls.Add(grp);
 
         lInterval = MkLabel("", 14, 26);
@@ -325,6 +333,17 @@ public class MainForm : Form
         numWarmSat.ValueChanged += delegate { warmSatV = (int)numWarmSat.Value; };
         grp.Controls.Add(numWarmSat);
 
+        // smooth-fade row: how many glide frames per gap to the target colour
+        // (1 = old teleport behaviour; higher = softer, 3 = ~1 glide step per tick)
+        lFade = MkLabel("", 14, 236);
+        grp.Controls.Add(lFade);
+        numFade = new NumericUpDown();
+        numFade.Minimum = 1; numFade.Maximum = 6;
+        numFade.Increment = 1; numFade.Value = 3;
+        numFade.Location = new Point(300, 233); numFade.Size = new Size(90, 24);
+        numFade.ValueChanged += delegate { fadeV = (int)numFade.Value; };
+        grp.Controls.Add(numFade);
+
         chkAll = new CheckBox();
         chkAll.Location = new Point(404, 24); chkAll.AutoSize = true;
         chkAll.CheckedChanged += delegate { captureAllV = chkAll.Checked; };
@@ -377,8 +396,8 @@ public class MainForm : Form
         txtLog.Multiline = true; txtLog.ReadOnly = true;
         txtLog.ScrollBars = ScrollBars.Vertical;
         txtLog.Font = new Font("Consolas", 9);
-        txtLog.Location = new Point(16, 452);
-        txtLog.Size = new Size(528, 80);
+        txtLog.Location = new Point(16, 484);
+        txtLog.Size = new Size(528, 52);
         Controls.Add(txtLog);
 
         FormClosing += OnClosing;
@@ -400,6 +419,7 @@ public class MainForm : Form
         lWhite.Text = L10n.S(langIdx, L10n.WHITE);
         lWarm1.Text = L10n.S(langIdx, L10n.WARMHUE);
         lWarm2.Text = L10n.S(langIdx, L10n.WARMSAT);
+        lFade.Text = L10n.S(langIdx, L10n.FADE);
         lLang.Text = L10n.S(langIdx, L10n.LANG);
         chkAll.Text = L10n.S(langIdx, L10n.ALLMON);
         chkAuto.Text = L10n.S(langIdx, L10n.AUTOSTART);
@@ -447,6 +467,7 @@ public class MainForm : Form
         whiteThrV = (int)numWhite.Value;
         warmHueV = (int)numWarmHue.Value;
         warmSatV = (int)numWarmSat.Value;
+        fadeV = (int)numFade.Value;
         captureAllV = chkAll.Checked;
         SaveSettings();          // autosave: survive hard kills / crashes
     }
@@ -550,8 +571,27 @@ public class MainForm : Form
                     }
                     int bri = Math.Max(minBriV, (int)Math.Min(100, val * briGainV));
 
-                    // preview: the colour the strip actually shows
-                    Color c = HsvToColor(hue, sat, bri);
+                    // smooth fade (v1.6): what we write this tick is a glide step
+                    // toward the target. fadeV=1 keeps the old teleport behaviour.
+                    // Each tick the residual shrinks by frac = 2/(N+1); hue slides
+                    // along the shortest arc; when every component comes within the
+                    // 2-step tolerance we snap onto the exact target.
+                    int wH = hue, wS = sat, wB = bri;
+                    int fadeF = fadeV;                     // one volatile read per tick
+                    if (fadeF >= 2 && lastH > -900)
+                    {
+                        double frac = 2.0 / (fadeF + 1.0);
+                        int dh = ((hue - lastH + 540) % 360) - 180;   // shortest hue arc
+                        wH = (((int)Math.Round(lastH + dh * frac) % 360) + 360) % 360;
+                        wS = lastS + (int)Math.Round((sat - lastS) * frac);
+                        wB = lastB + (int)Math.Round((bri - lastB) * frac);
+                        int rh = ((hue - wH + 540) % 360) - 180;
+                        if (rh >= -2 && rh <= 2 && Math.Abs(sat - wS) <= 2 && Math.Abs(bri - wB) <= 2)
+                        { wH = hue; wS = sat; wB = bri; }            // arrived: exact target
+                    }
+
+                    // preview: the colour the strip actually shows (the glide position)
+                    Color c = HsvToColor(wH, wS, wB);
                     bool changed = Math.Abs(hue - lastH) > 2 || Math.Abs(sat - lastS) > 2
                                    || Math.Abs(bri - lastB) > 2;
                     if (!running) break;
@@ -561,7 +601,7 @@ public class MainForm : Form
                         lblAvg.Text = string.Format(L10n.S(langIdx, L10n.AVG), rM, gM, bM);
                         lblStrip.Text = whiteOut
                             ? string.Format(L10n.S(langIdx, L10n.WHITEF), bri)
-                            : string.Format(L10n.S(langIdx, L10n.STRIP), L10n.Hue(langIdx, hue), sat, bri);
+                            : string.Format(L10n.S(langIdx, L10n.STRIP), L10n.Hue(langIdx, wH), wS, wB);
                     });
 
                     // write gate == sampling interval: one knob controls the rate.
@@ -570,9 +610,12 @@ public class MainForm : Form
                     // commands, so the old hardcoded 350 ms was pure over-caution.
                     if (changed && (DateTime.Now - lastSend).TotalMilliseconds >= intervalV)
                     {
-                        if (SendV3Color(hue, sat, bri))
+                        if (SendV3Color(wH, wS, wB))
                         {
-                            lastH = hue; lastS = sat; lastB = bri;
+                            int qh = wH; if (wS < 1) qh = 0;
+                            qh = ((qh % 360) + 360) % 360; qh &= ~1;
+                            lastH = qh; lastS = Math.Max(0, Math.Min(100, wS));
+                            lastB = Math.Max(1, Math.Min(100, wB));
                             lastSend = DateTime.Now;
                             UiSafe(delegate { lblLastSend.Text =
                                 string.Format(L10n.S(langIdx, L10n.SENT), DateTime.Now.ToString("HH:mm:ss")); });
@@ -582,7 +625,13 @@ public class MainForm : Form
                     else if (!changed && (DateTime.Now - lastSend).TotalSeconds > 25)
                     {
                         if (SendV3Color(hue, sat, bri))
-                        { lastSend = DateTime.Now; lastH = hue; lastS = sat; lastB = bri; }
+                        {
+                            int qh = hue; if (sat < 1) qh = 0;
+                            qh = ((qh % 360) + 360) % 360; qh &= ~1;
+                            lastH = qh; lastS = Math.Max(0, Math.Min(100, sat));
+                            lastB = Math.Max(1, Math.Min(100, bri));
+                            lastSend = DateTime.Now;
+                        }
                         else OnLinkLost("keepalive write failed"); // was: Drop()
                     }
                 }
@@ -693,6 +742,7 @@ public class MainForm : Form
             sb.AppendLine("whiteThr=" + numWhite.Value);
             sb.AppendLine("warmHue=" + numWarmHue.Value);
             sb.AppendLine("warmSat=" + numWarmSat.Value);
+            sb.AppendLine("fade=" + numFade.Value);
             sb.AppendLine("allScreens=" + (chkAll.Checked ? "1" : "0"));
             sb.AppendLine("autostart=" + (chkAuto.Checked ? "1" : "0"));
             sb.AppendLine("lang=" + L10n.Codes[langIdx]);
@@ -722,6 +772,7 @@ public class MainForm : Form
                     else if (key == "whitethr") numWhite.Value = Clamp(numWhite, decimal.Parse(v, CultureInfo.InvariantCulture));
                     else if (key == "warmhue") numWarmHue.Value = Clamp(numWarmHue, decimal.Parse(v, CultureInfo.InvariantCulture));
                     else if (key == "warmsat") numWarmSat.Value = Clamp(numWarmSat, decimal.Parse(v, CultureInfo.InvariantCulture));
+                    else if (key == "fade") numFade.Value = Clamp(numFade, decimal.Parse(v, CultureInfo.InvariantCulture));
                     else if (key == "allscreens") chkAll.Checked = (v == "1");
                     else if (key == "autostart") chkAuto.Checked = (v == "1");
                     else if (key == "lang") langIdx = L10n.Index(v);
