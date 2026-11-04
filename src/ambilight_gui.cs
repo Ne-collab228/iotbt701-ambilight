@@ -1,6 +1,6 @@
 // AmbilightOT GUI - screen average -> LED strip IOTBT701, with settings window
 // Protocol: colour_data_v3 = E0 01 00 A1 <hi> <lo> <bri> 00 00 00 00 14 00 00 + checksum
-// v1.6: smooth colour fade (numFade frames per gap; 1 = old teleport snap)
+// v1.7: time-based HSV glide on a separate capture thread (fade 1..10 = tau (n-1)*0.25 s; 1 = snap)
 // Fits desk shortcut Ambilight.lnk (winexe = no console window).
 // C#5-safe code (csc.exe): no string interpolation, no ?. on methods.
 using System;
@@ -60,7 +60,7 @@ public static class L10n
                 "тёплая поправка: тон °", "тёплая поправка %",
                 "запускать с Windows",
                 "лог подключений",
-                "плавный переход, кадров (1 = резко)" },
+                "плавность перехода, 1..10 (1 = резко)" },
         // 1: English
         new []{ "Ambilight OT — strip mirrors the screen",
                 "strip: waiting to start", "screen average: -",
@@ -77,7 +77,7 @@ public static class L10n
                 "warm white: hue °", "warm white: mix %",
                 "run at Windows startup",
                 "connection log",
-                "smooth fade, frames (1 = snap)" },
+                "transition smoothness 1..10 (1 = snap)" },
         // 2: Spanish
         new []{ "Ambilight OT — la tira refleja la pantalla",
                 "tira: en espera", "color medio de pantalla: -",
@@ -94,7 +94,7 @@ public static class L10n
                 "blanco cálido: tono °", "mezcla cálida %",
                 "iniciar con Windows",
                 "registro de conexión",
-                "transición suave, fotogramas (1 = brusco)" },
+                "suavidad de transición 1..10 (1 = brusco)" },
         // 3: Chinese (simplified)
         new []{ "Ambilight OT — 灯带同步屏幕",
                 "灯带：等待启动", "屏幕平均色：-",
@@ -111,7 +111,7 @@ public static class L10n
                 "暖白修正：色调 °", "暖白强度 %",
                 "随 Windows 启动",
                 "连接日志",
-                "平滑过渡，帧（1 = 瞬间）" },
+                "过渡平滑度 1..10（1 = 瞬间）" },
         // 4: Portuguese (Brazil)
         new []{ "Ambilight OT — fita espelha a tela",
                 "fita: aguardando início", "cor média da tela: -",
@@ -128,7 +128,7 @@ public static class L10n
                 "branco quente: tom °", "mistura quente %",
                 "iniciar com o Windows",
                 "log de conexão",
-                "transição suave, quadros (1 = seco)" },
+                "suavidade da transição 1..10 (1 = seco)" },
     };
 
     public static string S(int lang, int key)
@@ -338,7 +338,7 @@ public class MainForm : Form
         lFade = MkLabel("", 14, 236);
         grp.Controls.Add(lFade);
         numFade = new NumericUpDown();
-        numFade.Minimum = 1; numFade.Maximum = 6;
+        numFade.Minimum = 1; numFade.Maximum = 10;
         numFade.Increment = 1; numFade.Value = 3;
         numFade.Location = new Point(300, 233); numFade.Size = new Size(90, 24);
         numFade.ValueChanged += delegate { fadeV = (int)numFade.Value; };
@@ -506,12 +506,65 @@ public class MainForm : Form
         Drop();
     }
 
-    // ----- worker loop -----
+    // ----- shared capture state (capture thread -> render loop) -----
+    sealed class StopFlag { public volatile bool stop; }
+    readonly object capLock = new object();
+    double capR = 0, capG = 0, capB = 0;
+    bool capValid = false;
+
+    static double Clamp01(double v) { return v < 0 ? 0 : (v > 1 ? 1 : v); }
+
+    // v1.7: screen capture runs on its own thread, so the BLE render loop below
+    // ticks at a steady rate no matter how long a screenshot takes.
+    void CaptureLoop(int sx, int sy, int sw, int sh, StopFlag flag)
+    {
+        Bitmap bigB = null, smallB = null;
+        Graphics gB = null, gSm = null;
+        try
+        {
+            bigB = new Bitmap(sw, sh);
+            smallB = new Bitmap(96, 54);
+            gB = Graphics.FromImage(bigB);
+            gSm = Graphics.FromImage(smallB);
+            while (running && !flag.stop)
+            {
+                try
+                {
+                    gB.CopyFromScreen(sx, sy, 0, 0, new Size(sw, sh));
+                    gSm.DrawImage(bigB, new Rectangle(0, 0, smallB.Width, smallB.Height),
+                                  new Rectangle(0, 0, sw, sh), GraphicsUnit.Pixel);
+                    int r, g, b; double w;
+                    Average(smallB, out r, out g, out b, out w);
+                    lock (capLock) { capR = r; capG = g; capB = b; capValid = true; }
+                }
+                catch (Exception ex) { Log("capture: " + ex.Message); Thread.Sleep(1000); }
+                Thread.Sleep(30);
+            }
+        }
+        catch (Exception ex) { Log("capture thread: " + ex.Message); }
+        finally
+        {
+            if (gB != null) gB.Dispose();
+            if (gSm != null) gSm.Dispose();
+            if (bigB != null) bigB.Dispose();
+            if (smallB != null) smallB.Dispose();
+        }
+    }
+
+    // ----- worker loop (render + BLE) -----
+    // v1.7 smoothing: time-based (dt) exponential glide in HSV towards the target
+    // colour, instead of per-tick steps. White/colour switching is a continuous
+    // blend (no hard threshold pop), hue slides along the shortest arc and is
+    // held/snapped while saturation is too low for hue to be visible, and every
+    // quantised change is sent (no dead-band staircase).
     void WorkLoop()
     {
-        int lastH = -999, lastS = -999, lastB = -999;
+        StopFlag flag = new StopFlag();
+        double curH = 0, curS = 0, curB = 0;
+        bool haveCur = false;
+        int lqH = -999, lqS = -999, lqB = -999;
         DateTime lastSend = DateTime.MinValue;
-        double smR = -1, smG = -1, smB = -1;
+        DateTime lastTick = DateTime.Now;
         try
         {
             int sx, sy, sw, sh;
@@ -519,10 +572,10 @@ public class MainForm : Form
             UiSafe(delegate { lblStatus.Text = string.Format(L10n.S(langIdx, L10n.SCREEN), sw, sh); });
             Log("screen " + sw + "x" + sh + " @(" + sx + "," + sy + ")");
 
-            big = new Bitmap(sw, sh);
-            small = new Bitmap(96, 54);
-            gBig = Graphics.FromImage(big);
-            gS = Graphics.FromImage(small);
+            lock (capLock) { capValid = false; }
+            Thread cap = new Thread(delegate() { CaptureLoop(sx, sy, sw, sh, flag); });
+            cap.IsBackground = true;
+            cap.Start();
 
             while (running)
             {
@@ -533,106 +586,103 @@ public class MainForm : Form
                     if (!Send(new byte[] { 0x3B, 0x23, 0, 0, 0, 0, 0, 0, 0, 0x32, 0, 0 }, "power on"))
                     { Drop(); Thread.Sleep(4000); continue; }
                     hadLink = true;                 // link proven alive
-                    lastH = -999; lastS = -999; lastB = -999;
-                    smR = smG = smB = -1;
+                    lqH = -999; lqS = -999; lqB = -999;
+                    haveCur = false;
                     UiSafe(delegate { lblStatus.Text = L10n.S(langIdx, L10n.CONNECTED); });
                     Thread.Sleep(1200);
+                    lastTick = DateTime.Now;
                 }
 
                 Thread.Sleep(intervalV);
                 if (!running) break;
                 try
                 {
-                    gBig.CopyFromScreen(sx, sy, 0, 0, new Size(sw, sh));
-                    gS.DrawImage(big, new Rectangle(0, 0, small.Width, small.Height),
-                                 new Rectangle(0, 0, sw, sh), GraphicsUnit.Pixel);
-                    int rAvg, gAvg, bAvg; double wSum;
-                    Average(small, out rAvg, out gAvg, out bAvg, out wSum);
+                    double r, g, b; bool ok;
+                    lock (capLock) { r = capR; g = capG; b = capB; ok = capValid; }
+                    if (!ok) continue;
 
-                    double delta = (smR < 0) ? 999 :
-                        (Math.Abs(rAvg - smR) + Math.Abs(gAvg - smG) + Math.Abs(bAvg - smB));
-                    double k = delta > 40 ? 0.7 : 0.35;
-                    if (smR < 0) { smR = rAvg; smG = gAvg; smB = bAvg; }
-                    else { smR += (rAvg - smR) * k; smG += (gAvg - smG) * k; smB += (bAvg - smB) * k; }
+                    DateTime now = DateTime.Now;
+                    double dt = (now - lastTick).TotalSeconds;
+                    lastTick = now;
+                    if (dt < 0.005) dt = 0.005;
+                    if (dt > 1.0) dt = 1.0;
 
-                    int rM = (int)smR, gM = (int)smG, bM = (int)smB;
+                    int rM = (int)Math.Round(r), gM = (int)Math.Round(g), bM = (int)Math.Round(b);
                     int hue, sat, val;
                     RgbToHsv(rM, gM, bM, out hue, out sat, out val);
-                    // boost stripped of the "washed-out mid" problem: cheap RGB LEDs
-                    // render s40..70% as near-white, so mid sats are pulled up by a
-                    // power curve (0.75) before the user gain is applied.
-                    double sf = Math.Pow(Math.Min(100, sat * satGainV) / 100.0, 0.75);
-                    sat = (int)Math.Min(100, sf * 100.0);
-                    bool whiteOut = (val < 14 || sat < whiteThrV);
-                    if (whiteOut)
-                    {
-                        hue = warmHueV & ~1;              // even-hue firmware quirk
-                        sat = (warmSatV > 0) ? warmSatV : 0;
-                    }
-                    int bri = Math.Max(minBriV, (int)Math.Min(100, val * briGainV));
 
-                    // smooth fade (v1.6): what we write this tick is a glide step
-                    // toward the target. fadeV=1 keeps the old teleport behaviour.
-                    // Each tick the residual shrinks by frac = 2/(N+1); hue slides
-                    // along the shortest arc; when every component comes within the
-                    // 2-step tolerance we snap onto the exact target.
-                    int wH = hue, wS = sat, wB = bri;
-                    int fadeF = fadeV;                     // one volatile read per tick
-                    if (fadeF >= 2 && lastH > -900)
+                    // ----- target colour (continuous, no thresholds that "pop") -----
+                    // cheap RGB LEDs render s40..70% as near-white, so mid sats are
+                    // pulled up by a power curve (0.75) before the user gain.
+                    double tS = Math.Pow(Math.Min(100.0, sat * satGainV) / 100.0, 0.75) * 100.0;
+                    double tB = Math.Max(minBriV, Math.Min(100.0, val * briGainV));
+                    double tH = hue;
+                    // grey / very dark scene -> warm white; blended over a 10-point
+                    // saturation ramp instead of a hard switch
+                    double satRamp = Clamp01((tS - whiteThrV) / 10.0);
+                    double valRamp = Clamp01((val - 6) / 8.0);
+                    double wf = Math.Min(satRamp, valRamp);          // 0 = white, 1 = scene colour
+                    if (wf < 1.0)
                     {
-                        double frac = 2.0 / (fadeF + 1.0);
-                        int dh = ((hue - lastH + 540) % 360) - 180;   // shortest hue arc
-                        wH = (((int)Math.Round(lastH + dh * frac) % 360) + 360) % 360;
-                        wS = lastS + (int)Math.Round((sat - lastS) * frac);
-                        wB = lastB + (int)Math.Round((bri - lastB) * frac);
-                        int rh = ((hue - wH + 540) % 360) - 180;
-                        if (rh >= -2 && rh <= 2 && Math.Abs(sat - wS) <= 2 && Math.Abs(bri - wB) <= 2)
-                        { wH = hue; wS = sat; wB = bri; }            // arrived: exact target
+                        double warmH = warmHueV;
+                        double arc = ((hue - warmH + 540.0) % 360.0) - 180.0;
+                        tH = (warmH + arc * wf + 360.0) % 360.0;
+                        double warmS = warmSatV;
+                        tS = warmS + (tS - warmS) * wf;
                     }
+
+                    // ----- time-based glide towards the target -----
+                    if (!haveCur) { curH = tH; curS = tS; curB = tB; haveCur = true; }
+                    else
+                    {
+                        double tau = (fadeV - 1) * 0.25;                    // seconds; 1 = snap
+                        double a = tau <= 0.001 ? 1.0 : 1.0 - Math.Exp(-dt / tau);
+                        if (curS < 15.0) curH = tH;                         // hue invisible: just jump
+                        else if (tS >= 15.0)                                // real colour change: slide shortest arc
+                        {
+                            double dh = ((tH - curH + 540.0) % 360.0) - 180.0;
+                            curH = (curH + dh * a + 360.0) % 360.0;
+                        }                                                   // else: fading to white - hold hue
+                        curS += (tS - curS) * a;
+                        curB += (tB - curB) * a;
+                    }
+
+                    int qh = ((int)Math.Round(curH / 2.0) * 2) % 360;       // even hues only (firmware quirk)
+                    int qs = (int)Math.Round(curS);
+                    if (qs < 0) qs = 0; if (qs > 100) qs = 100;
+                    int qb = (int)Math.Round(curB);
+                    if (qb < 1) qb = 1; if (qb > 100) qb = 100;
+                    if (qs < 1) qh = 0;
 
                     // preview: the colour the strip actually shows (the glide position)
-                    Color c = HsvToColor(wH, wS, wB);
-                    bool changed = Math.Abs(hue - lastH) > 2 || Math.Abs(sat - lastS) > 2
-                                   || Math.Abs(bri - lastB) > 2;
+                    Color c = HsvToColor(qh, qs, qb);
+                    bool whiteLike = wf < 0.5;
+                    int fh = qh, fs = qs, fb = qb;
                     if (!running) break;
                     UiSafe(delegate
                     {
                         preview.BackColor = c;
                         lblAvg.Text = string.Format(L10n.S(langIdx, L10n.AVG), rM, gM, bM);
-                        lblStrip.Text = whiteOut
-                            ? string.Format(L10n.S(langIdx, L10n.WHITEF), bri)
-                            : string.Format(L10n.S(langIdx, L10n.STRIP), L10n.Hue(langIdx, wH), wS, wB);
+                        lblStrip.Text = whiteLike
+                            ? string.Format(L10n.S(langIdx, L10n.WHITEF), fb)
+                            : string.Format(L10n.S(langIdx, L10n.STRIP), L10n.Hue(langIdx, fh), fs, fb);
                     });
 
-                    // write gate == sampling interval: one knob controls the rate.
-                    // Measured 2026-11-01 (lednotify rate/soak): writes up to ~17/s
-                    // and even 456/s queue bursts do not break the link or drop
-                    // commands, so the old hardcoded 350 ms was pure over-caution.
-                    if (changed && (DateTime.Now - lastSend).TotalMilliseconds >= intervalV)
+                    // one write per tick (tick = interval knob); send whenever the
+                    // quantised colour moved, plus a 25 s keepalive
+                    bool changed = qh != lqH || qs != lqS || qb != lqB;
+                    bool keepalive = !changed && (now - lastSend).TotalSeconds > 25;
+                    if (changed || keepalive)
                     {
-                        if (SendV3Color(wH, wS, wB))
+                        if (SendV3Color(qh, qs, qb))
                         {
-                            int qh = wH; if (wS < 1) qh = 0;
-                            qh = ((qh % 360) + 360) % 360; qh &= ~1;
-                            lastH = qh; lastS = Math.Max(0, Math.Min(100, wS));
-                            lastB = Math.Max(1, Math.Min(100, wB));
-                            lastSend = DateTime.Now;
-                            UiSafe(delegate { lblLastSend.Text =
-                                string.Format(L10n.S(langIdx, L10n.SENT), DateTime.Now.ToString("HH:mm:ss")); });
+                            lqH = qh; lqS = qs; lqB = qb;
+                            lastSend = now;
+                            if (changed)
+                                UiSafe(delegate { lblLastSend.Text =
+                                    string.Format(L10n.S(langIdx, L10n.SENT), DateTime.Now.ToString("HH:mm:ss")); });
                         }
-                        else OnLinkLost("color write failed");   // was: Drop()
-                    }
-                    else if (!changed && (DateTime.Now - lastSend).TotalSeconds > 25)
-                    {
-                        if (SendV3Color(hue, sat, bri))
-                        {
-                            int qh = hue; if (sat < 1) qh = 0;
-                            qh = ((qh % 360) + 360) % 360; qh &= ~1;
-                            lastH = qh; lastS = Math.Max(0, Math.Min(100, sat));
-                            lastB = Math.Max(1, Math.Min(100, bri));
-                            lastSend = DateTime.Now;
-                        }
-                        else OnLinkLost("keepalive write failed"); // was: Drop()
+                        else OnLinkLost(changed ? "color write failed" : "keepalive write failed");
                     }
                 }
                 catch (Exception ex)
@@ -646,11 +696,7 @@ public class MainForm : Form
         catch (Exception ex) { Log("worker: " + ex.Message); }
         finally
         {
-            if (big != null) big.Dispose();
-            if (small != null) small.Dispose();
-            if (gBig != null) gBig.Dispose();
-            if (gS != null) gS.Dispose();
-            big = null; small = null; gBig = null; gS = null;
+            flag.stop = true;
             Drop();
             UiSafe(delegate { if (!running) lblStatus.Text = L10n.S(langIdx, L10n.STOPPED); });
             Log("stopped");
