@@ -5,6 +5,7 @@
 // C#5-safe code (csc.exe): no string interpolation, no ?. on methods.
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
@@ -40,7 +41,7 @@ public static class L10n
         MINBRI = 11, WHITE = 12, ALLMON = 13, AUTOSTART = 14, CONNECTING = 15,
         CONNECTED = 16, STOPPED = 17, SCREEN = 18, STRIP = 19, WHITEF = 20,
         SENT = 21, LANG = 22, WARMHUE = 23, WARMSAT = 24, BOOT = 25, LOG = 26,
-        FADE = 27;
+        FADE = 27, BASIC = 28, ADV = 29, S_SMOOTH = 30, S_BRI = 31, S_SAT = 32;
 
     static readonly string[][] T =
     {
@@ -60,7 +61,8 @@ public static class L10n
                 "тёплая поправка: тон °", "тёплая поправка %",
                 "запускать с Windows",
                 "лог подключений",
-                "плавность перехода, 1..10 (1 = резко)" },
+                "плавность перехода, 1..10 (1 = резко)",
+                "Основное", "Дополнительно", "Плавность", "Яркость", "Насыщенность" },
         // 1: English
         new []{ "Ambilight OT — strip mirrors the screen",
                 "strip: waiting to start", "screen average: -",
@@ -77,7 +79,8 @@ public static class L10n
                 "warm white: hue °", "warm white: mix %",
                 "run at Windows startup",
                 "connection log",
-                "transition smoothness 1..10 (1 = snap)" },
+                "transition smoothness 1..10 (1 = snap)",
+                "Basics", "Advanced", "Smoothness", "Brightness", "Saturation" },
         // 2: Spanish
         new []{ "Ambilight OT — la tira refleja la pantalla",
                 "tira: en espera", "color medio de pantalla: -",
@@ -94,7 +97,8 @@ public static class L10n
                 "blanco cálido: tono °", "mezcla cálida %",
                 "iniciar con Windows",
                 "registro de conexión",
-                "suavidad de transición 1..10 (1 = brusco)" },
+                "suavidad de transición 1..10 (1 = brusco)",
+                "Básico", "Avanzado", "Suavidad", "Brillo", "Saturación" },
         // 3: Chinese (simplified)
         new []{ "Ambilight OT — 灯带同步屏幕",
                 "灯带：等待启动", "屏幕平均色：-",
@@ -111,7 +115,8 @@ public static class L10n
                 "暖白修正：色调 °", "暖白强度 %",
                 "随 Windows 启动",
                 "连接日志",
-                "过渡平滑度 1..10（1 = 瞬间）" },
+                "过渡平滑度 1..10（1 = 瞬间）",
+                "基本", "高级", "平滑度", "亮度", "饱和度" },
         // 4: Portuguese (Brazil)
         new []{ "Ambilight OT — fita espelha a tela",
                 "fita: aguardando início", "cor média da tela: -",
@@ -128,7 +133,8 @@ public static class L10n
                 "branco quente: tom °", "mistura quente %",
                 "iniciar com o Windows",
                 "log de conexão",
-                "suavidade da transição 1..10 (1 = seco)" },
+                "suavidade da transição 1..10 (1 = seco)",
+                "Básico", "Avançado", "Suavidade", "Brilho", "Saturação" },
     };
 
     public static string S(int lang, int key)
@@ -192,13 +198,26 @@ public class MainForm : Form
     Graphics gBig = null, gS = null;
 
     // ----- UI -----
-    Panel preview;
-    Label lblAvg, lblStrip, lblStatus, lblLastSend;
+    static readonly Color ColBg = Color.FromArgb(22, 24, 30);
+    static readonly Color ColCard = Color.FromArgb(33, 36, 46);
+    static readonly Color ColField = Color.FromArgb(46, 50, 63);
+    static readonly Color ColText = Color.FromArgb(235, 238, 245);
+    static readonly Color ColMuted = Color.FromArgb(140, 148, 165);
+    static readonly Color ColAccent = Color.FromArgb(88, 166, 255);
+    static readonly Color ColGreen = Color.FromArgb(46, 160, 90);
+    static readonly Color ColRed = Color.FromArgb(214, 69, 69);
+    static readonly Color ColTrack = Color.FromArgb(62, 67, 82);
+
+    Swatch preview;
+    Label lblTitle, lblAvg, lblStrip, lblStatus, lblLastSend;
     Label lInterval, lSat, lBri, lMin, lWhite, lLang, lWarm1, lWarm2, lFade;
+    Label lcBasic, lsSmooth, lsBri, lsSat, vSmooth, vBri, vSat;
     ComboBox comboLang;
-    Button btnStart;
+    PillButton btnStart, btnAdv, btnLog;
     CheckBox chkAll, chkAuto, chkBoot;
-    Button btnLog;
+    Card cardBasic, cardOpt, cardAdv;
+    FlatSlider slSmooth, slBri, slSat;
+    bool advOpen = false;
 
     // users Startup folder shortcut definition
     static readonly string BootLnkPath = Path.Combine(
@@ -211,153 +230,190 @@ public class MainForm : Form
     bool hadLink = false;          // a live connection existed and then died on its own
     NumericUpDown numInterval, numSat, numBri, numMin, numWhite, numWarmHue, numWarmSat, numFade;
     TextBox txtLog;
-    GroupBox grp;
 
     // ----- language -----
     int langIdx = 0;   // index into L10n Codes/Names, default Russian
 
+    static void StyleNum(NumericUpDown n)
+    {
+        n.BackColor = ColField; n.ForeColor = ColText; n.BorderStyle = BorderStyle.FixedSingle;
+    }
+
+    static Label MkLabel(string t, int x, int y)
+    {
+        Label l = new Label();
+        l.Text = t; l.Location = new Point(x, y); l.AutoSize = true;
+        return l;
+    }
+
+    // one slider row inside a card: name on the left, slider, value on the right
+    FlatSlider MkRow(Card card, int ry, out Label name, out Label value)
+    {
+        name = new Label();
+        name.Location = new Point(16, ry); name.Size = new Size(112, 28);
+        name.TextAlign = ContentAlignment.MiddleLeft;
+        card.Controls.Add(name);
+        FlatSlider s = new FlatSlider();
+        s.Location = new Point(132, ry); s.Size = new Size(226, 28);
+        s.BackColor = ColCard; s.Accent = ColAccent; s.TrackColor = ColTrack;
+        card.Controls.Add(s);
+        value = new Label();
+        value.Location = new Point(364, ry); value.Size = new Size(62, 28);
+        value.TextAlign = ContentAlignment.MiddleRight;
+        value.ForeColor = ColMuted;
+        card.Controls.Add(value);
+        return s;
+    }
+
     public MainForm()
     {
         Text = "Ambilight OT";
+        Font = new Font("Segoe UI", 9.5f);
+        BackColor = ColBg; ForeColor = ColText;
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(560, 540);
+        DoubleBuffered = true;
+        AutoScroll = true;
+        ClientSize = new Size(480, 600);
 
-        // ----- preview swatch -----
-        preview = new Panel();
-        preview.Location = new Point(16, 16);
-        preview.Size = new Size(200, 130);
+        const int X = 20, W = 440;
+        int y = 14;
+
+        lblTitle = new Label();
+        lblTitle.Text = "Ambilight";
+        lblTitle.Font = new Font("Segoe UI Semibold", 20f);
+        lblTitle.ForeColor = ColText;
+        lblTitle.AutoSize = true; lblTitle.Location = new Point(X - 2, y);
+        Controls.Add(lblTitle);
+        y += 44;
+
+        lblStatus = new Label();
+        lblStatus.Location = new Point(X, y); lblStatus.Size = new Size(W, 20);
+        lblStatus.ForeColor = ColMuted; lblStatus.AutoEllipsis = true;
+        Controls.Add(lblStatus);
+        y += 28;
+
+        preview = new Swatch();
+        preview.Location = new Point(X, y); preview.Size = new Size(W, 120);
         preview.BackColor = Color.FromArgb(20, 20, 20);
-        preview.BorderStyle = BorderStyle.FixedSingle;
         Controls.Add(preview);
+        y += 130;
 
         lblStrip = new Label();
-        lblStrip.Location = new Point(224, 20);
-        lblStrip.Size = new Size(316, 44);
-        lblStrip.Font = new Font(Font.FontFamily, 10, FontStyle.Bold);
+        lblStrip.Location = new Point(X, y); lblStrip.Size = new Size(W, 26);
+        lblStrip.Font = new Font("Segoe UI Semibold", 11.5f);
         Controls.Add(lblStrip);
+        y += 28;
 
         lblAvg = new Label();
-        lblAvg.Location = new Point(224, 66);
-        lblAvg.Size = new Size(316, 20);
+        lblAvg.Location = new Point(X, y); lblAvg.Size = new Size(290, 20);
+        lblAvg.ForeColor = ColMuted;
         Controls.Add(lblAvg);
 
         lblLastSend = new Label();
-        lblLastSend.Location = new Point(224, 88);
-        lblLastSend.Size = new Size(316, 20);
-        lblLastSend.Text = "";
+        lblLastSend.Location = new Point(X + 290, y); lblLastSend.Size = new Size(150, 20);
+        lblLastSend.TextAlign = ContentAlignment.MiddleRight;
+        lblLastSend.ForeColor = ColMuted; lblLastSend.Text = "";
         Controls.Add(lblLastSend);
+        y += 32;
 
-        lblStatus = new Label();
-        lblStatus.Location = new Point(224, 112);
-        lblStatus.Size = new Size(316, 34);
-        Controls.Add(lblStatus);
-
-        btnStart = new Button();
-        btnStart.Location = new Point(16, 158);
-        btnStart.Size = new Size(200, 40);
-        btnStart.Font = new Font(Font.FontFamily, 11, FontStyle.Bold);
+        btnStart = new PillButton();
+        btnStart.Location = new Point(X, y); btnStart.Size = new Size(W, 54);
+        btnStart.Font = new Font("Segoe UI Semibold", 13f);
+        btnStart.FillProvider = delegate { return running ? ColRed : ColGreen; };
         btnStart.Click += OnStartStop;
         Controls.Add(btnStart);
+        y += 70;
 
-        // ----- settings -----
-        grp = new GroupBox();
-        grp.Location = new Point(16, 206);
-        grp.Size = new Size(528, 272);
-        Controls.Add(grp);
-
-        lInterval = MkLabel("", 14, 26);
-        grp.Controls.Add(lInterval);
+        // ----- numeric models (the source of truth for save/load; shown as sliders or in Advanced) -----
         numInterval = new NumericUpDown();
         numInterval.Minimum = 50; numInterval.Maximum = 3000;
         numInterval.Increment = 50; numInterval.Value = 700;
-        numInterval.Location = new Point(300, 23); numInterval.Size = new Size(90, 24);
+        numInterval.Size = new Size(90, 24);
         numInterval.ValueChanged += delegate { intervalV = (int)numInterval.Value; };
-        grp.Controls.Add(numInterval);
 
-        lSat = MkLabel("", 14, 56);
-        grp.Controls.Add(lSat);
         numSat = new NumericUpDown();
         numSat.Minimum = (decimal)0.5; numSat.Maximum = (decimal)3.0;
         numSat.Increment = (decimal)0.1; numSat.DecimalPlaces = 1;
         numSat.Value = (decimal)1.6;
-        numSat.Location = new Point(300, 53); numSat.Size = new Size(90, 24);
         numSat.ValueChanged += delegate { satGainV = (double)numSat.Value; };
-        grp.Controls.Add(numSat);
 
-        lBri = MkLabel("", 14, 86);
-        grp.Controls.Add(lBri);
         numBri = new NumericUpDown();
         numBri.Minimum = (decimal)1.0; numBri.Maximum = (decimal)2.0;
         numBri.Increment = (decimal)0.1; numBri.DecimalPlaces = 1;
         numBri.Value = (decimal)1.4;
-        numBri.Location = new Point(300, 83); numBri.Size = new Size(90, 24);
         numBri.ValueChanged += delegate { briGainV = (double)numBri.Value; };
-        grp.Controls.Add(numBri);
 
-        lMin = MkLabel("", 14, 116);
-        grp.Controls.Add(lMin);
         numMin = new NumericUpDown();
         numMin.Minimum = 0; numMin.Maximum = 40;
         numMin.Increment = 1; numMin.Value = 8;
-        numMin.Location = new Point(300, 113); numMin.Size = new Size(90, 24);
+        numMin.Size = new Size(90, 24);
         numMin.ValueChanged += delegate { minBriV = (int)numMin.Value; };
-        grp.Controls.Add(numMin);
 
-        lWhite = MkLabel("", 14, 146);
-        grp.Controls.Add(lWhite);
         numWhite = new NumericUpDown();
         numWhite.Minimum = 0; numWhite.Maximum = 40;
         numWhite.Increment = 1; numWhite.Value = 16;
-        numWhite.Location = new Point(300, 143); numWhite.Size = new Size(90, 24);
+        numWhite.Size = new Size(90, 24);
         numWhite.ValueChanged += delegate { whiteThrV = (int)numWhite.Value; };
-        grp.Controls.Add(numWhite);
 
-        // warm-white correction rows (compensates the strip's cold white cast)
-        lWarm1 = MkLabel("", 14, 176);
-        grp.Controls.Add(lWarm1);
         numWarmHue = new NumericUpDown();
         numWarmHue.Minimum = 0; numWarmHue.Maximum = 120;
         numWarmHue.Increment = 2; numWarmHue.Value = 48;
-        numWarmHue.Location = new Point(300, 173); numWarmHue.Size = new Size(90, 24);
+        numWarmHue.Size = new Size(90, 24);
         numWarmHue.ValueChanged += delegate { warmHueV = (int)numWarmHue.Value; };
-        grp.Controls.Add(numWarmHue);
 
-        lWarm2 = MkLabel("", 14, 206);
-        grp.Controls.Add(lWarm2);
         numWarmSat = new NumericUpDown();
         numWarmSat.Minimum = 0; numWarmSat.Maximum = 20;
         numWarmSat.Increment = 1; numWarmSat.Value = 5;
-        numWarmSat.Location = new Point(300, 203); numWarmSat.Size = new Size(90, 24);
+        numWarmSat.Size = new Size(90, 24);
         numWarmSat.ValueChanged += delegate { warmSatV = (int)numWarmSat.Value; };
-        grp.Controls.Add(numWarmSat);
 
-        // smooth-fade row: how many glide frames per gap to the target colour
-        // (1 = old teleport behaviour; higher = softer, 3 = ~1 glide step per tick)
-        lFade = MkLabel("", 14, 236);
-        grp.Controls.Add(lFade);
         numFade = new NumericUpDown();
         numFade.Minimum = 1; numFade.Maximum = 10;
         numFade.Increment = 1; numFade.Value = 3;
-        numFade.Location = new Point(300, 233); numFade.Size = new Size(90, 24);
         numFade.ValueChanged += delegate { fadeV = (int)numFade.Value; };
-        grp.Controls.Add(numFade);
+
+        // ----- card: basics (sliders) -----
+        cardBasic = new Card();
+        cardBasic.Location = new Point(X, y); cardBasic.Size = new Size(W, 164);
+        Controls.Add(cardBasic);
+        lcBasic = new Label();
+        lcBasic.Location = new Point(16, 12); lcBasic.AutoSize = true;
+        lcBasic.Font = new Font("Segoe UI Semibold", 10.5f);
+        lcBasic.ForeColor = ColAccent;
+        cardBasic.Controls.Add(lcBasic);
+
+        slSmooth = MkRow(cardBasic, 44, out lsSmooth, out vSmooth);
+        slSmooth.Minimum = 1; slSmooth.Maximum = 10; slSmooth.Value = 3;
+        slSmooth.ValueChanged += delegate { numFade.Value = slSmooth.Value; SyncSliderLabels(); };
+        numFade.ValueChanged += delegate { slSmooth.Value = (int)numFade.Value; SyncSliderLabels(); };
+
+        slBri = MkRow(cardBasic, 84, out lsBri, out vBri);
+        slBri.Minimum = 10; slBri.Maximum = 20; slBri.Value = 14;
+        slBri.ValueChanged += delegate { numBri.Value = slBri.Value / 10m; SyncSliderLabels(); };
+        numBri.ValueChanged += delegate { slBri.Value = (int)Math.Round(numBri.Value * 10m); SyncSliderLabels(); };
+
+        slSat = MkRow(cardBasic, 124, out lsSat, out vSat);
+        slSat.Minimum = 5; slSat.Maximum = 30; slSat.Value = 16;
+        slSat.ValueChanged += delegate { numSat.Value = slSat.Value / 10m; SyncSliderLabels(); };
+        numSat.ValueChanged += delegate { slSat.Value = (int)Math.Round(numSat.Value * 10m); SyncSliderLabels(); };
+        y += 176;
+
+        // ----- card: options -----
+        cardOpt = new Card();
+        cardOpt.Location = new Point(X, y); cardOpt.Size = new Size(W, 118);
+        Controls.Add(cardOpt);
 
         chkAll = new CheckBox();
-        chkAll.Location = new Point(404, 24); chkAll.AutoSize = true;
+        chkAll.Location = new Point(16, 14); chkAll.AutoSize = true;
         chkAll.CheckedChanged += delegate { captureAllV = chkAll.Checked; };
-        grp.Controls.Add(chkAll);
-
-        chkAuto = new CheckBox();
-        chkAuto.Location = new Point(404, 52); chkAuto.AutoSize = true;
-        chkAuto.CheckedChanged += delegate { SaveSettings(); };
-        grp.Controls.Add(chkAuto);
+        cardOpt.Controls.Add(chkAll);
 
         // run at Windows startup: the .lnk in the user's Startup folder is the single
         // source of truth (checked if it exists; toggling creates/deletes it)
         chkBoot = new CheckBox();
-        chkBoot.Location = new Point(404, 134); chkBoot.AutoSize = true;
+        chkBoot.Location = new Point(16, 46); chkBoot.AutoSize = true;
         chkBoot.Checked = File.Exists(BootLnkPath);
         chkBoot.CheckedChanged += delegate
         {
@@ -367,21 +423,22 @@ public class MainForm : Form
             }
             catch (Exception ex) { Log("startup shortcut: " + ex.Message); }
         };
-        grp.Controls.Add(chkBoot);
+        cardOpt.Controls.Add(chkBoot);
 
-        // connection log button (full log incl. crash/disconnect events)
-        btnLog = new Button();
-        btnLog.Location = new Point(404, 160); btnLog.Size = new Size(120, 26);
-        btnLog.Click += delegate { ShowLogWindow(false); };
-        grp.Controls.Add(btnLog);
+        chkAuto = new CheckBox();
+        chkAuto.Location = new Point(16, 78); chkAuto.AutoSize = true;
+        chkAuto.CheckedChanged += delegate { SaveSettings(); };
+        cardOpt.Controls.Add(chkAuto);
 
-        // ----- language selector (same 5 as the repo READMEs) -----
-        lLang = MkLabel("", 404, 84);
-        grp.Controls.Add(lLang);
+        lLang = MkLabel("", 252, 14);
+        lLang.ForeColor = ColMuted;
+        cardOpt.Controls.Add(lLang);
 
         comboLang = new ComboBox();
         comboLang.DropDownStyle = ComboBoxStyle.DropDownList;
-        comboLang.Location = new Point(404, 104); comboLang.Size = new Size(120, 24);
+        comboLang.FlatStyle = FlatStyle.Flat;
+        comboLang.BackColor = ColField; comboLang.ForeColor = ColText;
+        comboLang.Location = new Point(252, 36); comboLang.Size = new Size(174, 26);
         foreach (string n in L10n.Names) comboLang.Items.Add(n);
         comboLang.SelectedIndexChanged += delegate
         {
@@ -389,37 +446,92 @@ public class MainForm : Form
             SaveSettings();
             ApplyLang();
         };
-        grp.Controls.Add(comboLang);
+        cardOpt.Controls.Add(comboLang);
 
-        // ----- log -----
+        // connection log button (full log incl. crash/disconnect events)
+        btnLog = new PillButton();
+        btnLog.Location = new Point(252, 74); btnLog.Size = new Size(174, 30);
+        btnLog.FillProvider = delegate { return ColTrack; };
+        btnLog.Click += delegate { ShowLogWindow(false); };
+        cardOpt.Controls.Add(btnLog);
+        y += 130;
+
+        // ----- advanced (collapsible) -----
+        btnAdv = new PillButton();
+        btnAdv.Location = new Point(X, y); btnAdv.Size = new Size(W, 34);
+        btnAdv.FillProvider = delegate { return ColCard; };
+        btnAdv.Click += delegate { advOpen = !advOpen; ApplyLang(); Relayout(); };
+        Controls.Add(btnAdv);
+        y += 44;
+
+        cardAdv = new Card();
+        cardAdv.Location = new Point(X, y); cardAdv.Size = new Size(W, 5 * 34 + 20 + 84);
+        cardAdv.Visible = false;
+        Controls.Add(cardAdv);
+
+        lInterval = MkLabel("", 16, 16 + 4); cardAdv.Controls.Add(lInterval);
+        lMin = MkLabel("", 16, 16 + 34 + 4); cardAdv.Controls.Add(lMin);
+        lWhite = MkLabel("", 16, 16 + 68 + 4); cardAdv.Controls.Add(lWhite);
+        lWarm1 = MkLabel("", 16, 16 + 102 + 4); cardAdv.Controls.Add(lWarm1);
+        lWarm2 = MkLabel("", 16, 16 + 136 + 4); cardAdv.Controls.Add(lWarm2);
+        lFade = new Label();                    // kept for ApplyLang compatibility (unused in layout)
+        NumericUpDown[] advNums = { numInterval, numMin, numWhite, numWarmHue, numWarmSat };
+        for (int i = 0; i < advNums.Length; i++)
+        {
+            StyleNum(advNums[i]);
+            advNums[i].Location = new Point(W - 16 - 90, 16 + i * 34);
+            cardAdv.Controls.Add(advNums[i]);
+        }
+
         txtLog = new TextBox();
         txtLog.Multiline = true; txtLog.ReadOnly = true;
         txtLog.ScrollBars = ScrollBars.Vertical;
         txtLog.Font = new Font("Consolas", 9);
-        txtLog.Location = new Point(16, 484);
-        txtLog.Size = new Size(528, 52);
-        Controls.Add(txtLog);
+        txtLog.BackColor = ColField; txtLog.ForeColor = ColMuted;
+        txtLog.BorderStyle = BorderStyle.None;
+        txtLog.Location = new Point(16, 16 + 5 * 34 + 4);
+        txtLog.Size = new Size(W - 32, 72);
+        cardAdv.Controls.Add(txtLog);
 
         FormClosing += OnClosing;
         LoadSettings();
         comboLang.SelectedIndex = langIdx;      // fires ApplyLang
         PushUItoVolatile();
+        SyncSliderLabels();
+        Relayout();
         if (chkAuto.Checked) StartWork();
+    }
+
+    void SyncSliderLabels()
+    {
+        vSmooth.Text = slSmooth.Value + " / 10";
+        vBri.Text = "x" + (slBri.Value / 10.0).ToString("0.0", CultureInfo.InvariantCulture);
+        vSat.Text = "x" + (slSat.Value / 10.0).ToString("0.0", CultureInfo.InvariantCulture);
+    }
+
+    // window height follows the Advanced panel; clamp to the screen (form scrolls if it does not fit)
+    void Relayout()
+    {
+        cardAdv.Visible = advOpen;
+        int h = (advOpen ? cardAdv.Bottom : btnAdv.Bottom) + 16;
+        int max = Screen.PrimaryScreen.WorkingArea.Height - 90;
+        ClientSize = new Size(480, Math.Min(h, max));
     }
 
     // set every static control text from the current language table
     void ApplyLang()
     {
         Text = L10n.S(langIdx, L10n.TITLE);
-        grp.Text = L10n.S(langIdx, L10n.SETTINGS);
+        lcBasic.Text = L10n.S(langIdx, L10n.BASIC);
+        lsSmooth.Text = L10n.S(langIdx, L10n.S_SMOOTH);
+        lsBri.Text = L10n.S(langIdx, L10n.S_BRI);
+        lsSat.Text = L10n.S(langIdx, L10n.S_SAT);
+        btnAdv.Text = L10n.S(langIdx, L10n.ADV) + (advOpen ? "  ▾" : "  ▸");
         lInterval.Text = L10n.S(langIdx, L10n.INTERVAL);
-        lSat.Text = L10n.S(langIdx, L10n.SAT);
-        lBri.Text = L10n.S(langIdx, L10n.BRI);
         lMin.Text = L10n.S(langIdx, L10n.MINBRI);
         lWhite.Text = L10n.S(langIdx, L10n.WHITE);
         lWarm1.Text = L10n.S(langIdx, L10n.WARMHUE);
         lWarm2.Text = L10n.S(langIdx, L10n.WARMSAT);
-        lFade.Text = L10n.S(langIdx, L10n.FADE);
         lLang.Text = L10n.S(langIdx, L10n.LANG);
         chkAll.Text = L10n.S(langIdx, L10n.ALLMON);
         chkAuto.Text = L10n.S(langIdx, L10n.AUTOSTART);
@@ -433,13 +545,6 @@ public class MainForm : Form
             lblStatus.Text = L10n.S(langIdx, L10n.NOTCONN);
             lblLastSend.Text = "";
         }
-    }
-
-    static Label MkLabel(string t, int x, int y)
-    {
-        Label l = new Label();
-        l.Text = t; l.Location = new Point(x, y); l.AutoSize = true;
-        return l;
     }
 
     // ----- run-at-Windows-startup shortcut (shell:startup\AmbilightOT.lnk) -----
@@ -1092,4 +1197,167 @@ public class LogForm : Form
         Controls.Add(txt);
         Controls.Add(bar);
     }
+}
+
+// ================= custom dark-theme controls (v1.8 UI) =================
+static class Gfx
+{
+    public static GraphicsPath Round(Rectangle r, int rad)
+    {
+        int d = rad * 2;
+        GraphicsPath p = new GraphicsPath();
+        p.AddArc(r.X, r.Y, d, d, 180, 90);
+        p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
+        p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
+        p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
+        p.CloseFigure();
+        return p;
+    }
+}
+
+// rounded panel that holds other controls
+public class Card : Panel
+{
+    public Card()
+    {
+        SetStyle(ControlStyles.OptimizedDoubleBuffer
+                 | ControlStyles.UserPaint | ControlStyles.ResizeRedraw, true);
+        BackColor = Color.FromArgb(33, 36, 46);
+    }
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        e.Graphics.Clear(Parent != null ? Parent.BackColor : BackColor);
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using (GraphicsPath p = Gfx.Round(new Rectangle(0, 0, Width - 1, Height - 1), 12))
+        using (SolidBrush b = new SolidBrush(BackColor))
+            e.Graphics.FillPath(b, p);
+    }
+}
+
+// big rounded colour preview; WorkLoop just sets BackColor
+public class Swatch : Panel
+{
+    public Swatch()
+    {
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint
+                 | ControlStyles.ResizeRedraw, true);
+    }
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        e.Graphics.Clear(Parent != null ? Parent.BackColor : BackColor);
+    }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using (GraphicsPath p = Gfx.Round(new Rectangle(0, 0, Width - 1, Height - 1), 16))
+        {
+            using (SolidBrush b = new SolidBrush(BackColor)) e.Graphics.FillPath(b, p);
+            using (Pen pen = new Pen(Color.FromArgb(60, 255, 255, 255), 1f)) e.Graphics.DrawPath(pen, p);
+        }
+    }
+}
+
+// flat rounded button; fill colour comes from a callback so it follows app state
+public class PillButton : Button
+{
+    public Func<Color> FillProvider;
+    bool hover = false;
+    public PillButton()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer
+                 | ControlStyles.ResizeRedraw, true);
+        FlatStyle = FlatStyle.Flat;
+        FlatAppearance.BorderSize = 0;
+        ForeColor = Color.White;
+        Cursor = Cursors.Hand;
+    }
+    protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(Parent != null ? Parent.BackColor : BackColor);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        Color fill = FillProvider != null ? FillProvider() : Color.Gray;
+        if (hover) fill = ControlPaint.Light(fill, 0.25f);
+        using (GraphicsPath p = Gfx.Round(new Rectangle(0, 0, Width - 1, Height - 1), Math.Min(14, Height / 2)))
+        using (SolidBrush b = new SolidBrush(fill))
+            g.FillPath(b, p);
+        TextRenderer.DrawText(g, Text, Font, new Rectangle(0, 0, Width, Height), ForeColor,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+    }
+}
+
+// minimal flat slider (drag with the mouse or use the arrow keys)
+public class FlatSlider : Control
+{
+    int min = 0, max = 10, val = 0;
+    bool drag = false;
+    public Color Accent = Color.FromArgb(88, 166, 255);
+    public Color TrackColor = Color.FromArgb(62, 67, 82);
+    public event EventHandler ValueChanged;
+
+    public FlatSlider()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer
+                 | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+        TabStop = true;
+        Cursor = Cursors.Hand;
+    }
+    public int Minimum { get { return min; } set { min = value; if (val < min) Value = min; Invalidate(); } }
+    public int Maximum { get { return max; } set { max = value; if (val > max) Value = max; Invalidate(); } }
+    public int Value
+    {
+        get { return val; }
+        set
+        {
+            int v = value < min ? min : (value > max ? max : value);
+            if (v == val) return;
+            val = v;
+            Invalidate();
+            if (ValueChanged != null) ValueChanged(this, EventArgs.Empty);
+        }
+    }
+    const int Pad = 11;
+    float ThumbX()
+    {
+        float f = (max == min) ? 0f : (float)(val - min) / (max - min);
+        return Pad + f * (Width - 2 * Pad);
+    }
+    void SetFromX(int x)
+    {
+        float f = (float)(x - Pad) / Math.Max(1, Width - 2 * Pad);
+        if (f < 0) f = 0; if (f > 1) f = 1;
+        Value = min + (int)Math.Round(f * (max - min));
+    }
+    protected override bool IsInputKey(Keys k)
+    {
+        return k == Keys.Left || k == Keys.Right || k == Keys.Up || k == Keys.Down || base.IsInputKey(k);
+    }
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        if (e.KeyCode == Keys.Left || e.KeyCode == Keys.Down) Value = val - 1;
+        else if (e.KeyCode == Keys.Right || e.KeyCode == Keys.Up) Value = val + 1;
+        base.OnKeyDown(e);
+    }
+    protected override void OnMouseDown(MouseEventArgs e) { Focus(); drag = true; SetFromX(e.X); base.OnMouseDown(e); }
+    protected override void OnMouseMove(MouseEventArgs e) { if (drag) SetFromX(e.X); base.OnMouseMove(e); }
+    protected override void OnMouseUp(MouseEventArgs e) { drag = false; base.OnMouseUp(e); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Graphics g = e.Graphics;
+        g.Clear(BackColor);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        int cy = Height / 2;
+        float tx = ThumbX();
+        using (Pen pt = new Pen(TrackColor, 6f)) { pt.StartCap = LineCap.Round; pt.EndCap = LineCap.Round;
+            g.DrawLine(pt, Pad, cy, Width - Pad, cy); }
+        using (Pen pa = new Pen(Accent, 6f)) { pa.StartCap = LineCap.Round; pa.EndCap = LineCap.Round;
+            g.DrawLine(pa, Pad, cy, tx, cy); }
+        float r = Focused ? 9.5f : 8.5f;
+        using (SolidBrush b = new SolidBrush(Color.White)) g.FillEllipse(b, tx - r, cy - r, 2 * r, 2 * r);
+        using (Pen ring = new Pen(Accent, 2f)) g.DrawEllipse(ring, tx - r, cy - r, 2 * r, 2 * r);
+    }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
 }
