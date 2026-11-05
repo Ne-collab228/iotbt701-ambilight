@@ -10,6 +10,7 @@ using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -181,6 +182,52 @@ public class MainForm : Form
     GattCharacteristic f01 = null;
     BluetoothLEDevice dev = null;
     GattSession session = null;
+
+    // ----- diagnostics (v1.8) -----
+    DateTime lastOkWrite = DateTime.MinValue;
+    DateTime connectedAt = DateTime.MinValue;
+    long okWrites = 0;
+    long writesThisLink = 0;
+
+    // unwrap AggregateException/TargetInvocationException into a readable chain:
+    // Type: message (HRESULT 0x........) <- inner ...
+    static string Ex(Exception ex)
+    {
+        var sb = new StringBuilder();
+        int depth = 0;
+        while (ex != null && depth < 6)
+        {
+            AggregateException ag = ex as AggregateException;
+            if (ag != null && ag.InnerExceptions.Count > 0) { ex = ag.InnerExceptions[0]; continue; }
+            if (ex is TargetInvocationException && ex.InnerException != null) { ex = ex.InnerException; continue; }
+            if (sb.Length > 0) sb.Append("  <-  ");
+            sb.Append(ex.GetType().Name).Append(": ").Append(ex.Message.Trim());
+            sb.Append(" (HRESULT 0x").Append(ex.HResult.ToString("X8")).Append(")");
+            ex = ex.InnerException;
+            depth++;
+        }
+        return sb.ToString();
+    }
+
+    string LinkState()
+    {
+        string s = "";
+        try { s += "dev=" + (dev == null ? "null" : dev.ConnectionStatus.ToString()); } catch (Exception e) { s += "dev=ERR(" + e.GetType().Name + ")"; }
+        try { s += ", session=" + (session == null ? "null" : session.SessionStatus.ToString()); } catch (Exception e) { s += ", session=ERR(" + e.GetType().Name + ")"; }
+        s += ", sinceLastOkWrite=" + (lastOkWrite == DateTime.MinValue ? "never" : ((DateTime.Now - lastOkWrite).TotalSeconds.ToString("F1") + "s"));
+        s += ", linkAge=" + (connectedAt == DateTime.MinValue ? "n/a" : ((DateTime.Now - connectedAt).TotalSeconds.ToString("F0") + "s"));
+        s += ", writesThisLink=" + writesThisLink;
+        return s;
+    }
+
+    void OnDevConnChanged(BluetoothLEDevice d, object o)
+    {
+        try { Log("EVENT device ConnectionStatus -> " + d.ConnectionStatus); } catch (Exception e) { Log("EVENT device status: " + Ex(e)); }
+    }
+    void OnSessionChanged(GattSession s, GattSessionStatusChangedEventArgs a)
+    {
+        try { Log("EVENT GATT session -> " + a.Status + (a.Error != BluetoothError.Success ? " (error " + a.Error + ")" : "")); } catch (Exception e) { Log("EVENT session: " + Ex(e)); }
+    }
 
     // ----- worker -----
     Thread worker;
@@ -586,6 +633,10 @@ public class MainForm : Form
     void StartWork()
     {
         if (running) return;
+        // v1.8: a previous worker may still be shutting down (it calls Drop() in finally);
+        // starting a second one concurrently made two threads fight over one BLE link.
+        if (worker != null && worker.IsAlive && !worker.Join(4000))
+        { Log("start refused: previous worker still stopping"); return; }
         running = true;
         PushUItoVolatile();
         btnStart.Text = L10n.S(langIdx, L10n.STOP);
@@ -792,13 +843,13 @@ public class MainForm : Form
                 }
                 catch (Exception ex)
                 {
-                    Log("loop: " + ex.Message);
+                    Log("loop: " + Ex(ex) + "; " + LinkState());
                     Drop();
                     Thread.Sleep(3000);
                 }
             }
         }
-        catch (Exception ex) { Log("worker: " + ex.Message); }
+        catch (Exception ex) { Log("worker: " + Ex(ex) + "; " + LinkState()); }
         finally
         {
             flag.stop = true;
@@ -850,7 +901,7 @@ public class MainForm : Form
     // called when a previously-alive connection dies on its own
     void OnLinkLost(string why)
     {
-        Log("LINK LOST: " + why);
+        Log("LINK LOST: " + why + " | state before drop: " + LinkState());
         Drop();
         if (hadLink)                     // true self-disconnect (not the initial login)
         {
@@ -985,13 +1036,21 @@ public class MainForm : Form
             var wmi = typeof(GattCharacteristic).GetMethods()
                 .Where(x => x.Name == "WriteValueAsync" && x.GetParameters().Length == 2).First();
             object op = wmi.Invoke(f01, new object[] { BytesToBuffer(frame), GattWriteOption.WriteWithoutResponse });
+            DateTime t0 = DateTime.Now;
             GattCommunicationStatus st = (GattCommunicationStatus)AwaitOp(op, typeof(GattCommunicationStatus));
-            if (st != GattCommunicationStatus.Success) Log("send " + label + " : " + st);
+            double ms = (DateTime.Now - t0).TotalMilliseconds;
+            if (st != GattCommunicationStatus.Success)
+                Log("send " + label + " FAILED: GattCommunicationStatus=" + st + " after " + ms.ToString("F0") + " ms; " + LinkState());
+            else
+            {
+                lastOkWrite = DateTime.Now; okWrites++; writesThisLink++;
+                if (ms > 1000) Log("WARN slow write " + ms.ToString("F0") + " ms (" + label + "); " + LinkState());
+            }
             return st == GattCommunicationStatus.Success;
         }
         catch (Exception ex)
         {
-            Log("send " + label + " : " + ex.Message);
+            Log("send " + label + " EXCEPTION: " + Ex(ex) + "; " + LinkState());
             return false;
         }
     }
@@ -1034,7 +1093,14 @@ public class MainForm : Form
 
         var sop = GattSession.FromDeviceIdAsync(dev.BluetoothDeviceId);
         session = (GattSession)AwaitOp(sop, typeof(GattSession));
-        if (session != null) session.MaintainConnection = true;
+        if (session != null)
+        {
+            session.MaintainConnection = true;
+            try { session.SessionStatusChanged += OnSessionChanged; } catch (Exception e) { Log("hook session: " + Ex(e)); }
+            Log("GATT session created, MaintainConnection=" + session.MaintainConnection + ", status=" + session.SessionStatus);
+        }
+        else Log("WARN GattSession is null");
+        try { dev.ConnectionStatusChanged += OnDevConnChanged; } catch (Exception e) { Log("hook device: " + Ex(e)); }
         for (int i = 1; i <= 8 && running; i++)
         {
             Thread.Sleep(1500);
@@ -1043,6 +1109,7 @@ public class MainForm : Form
         if (dev == null || dev.ConnectionStatus != BluetoothConnectionStatus.Connected)
         { Log("GATT connect failed"); Drop(); return false; }
         Log("connected");
+        connectedAt = DateTime.Now; writesThisLink = 0;
 
         var gsop = dev.GetGattServicesAsync();
         var gs = (GattDeviceServicesResult)AwaitOp(gsop, typeof(GattDeviceServicesResult));
@@ -1062,8 +1129,16 @@ public class MainForm : Form
 
     void Drop()
     {
-        if (session != null) { try { session.Dispose(); } catch { } session = null; }
-        if (dev != null) { try { dev.Dispose(); } catch { } dev = null; }
+        if (session != null)
+        {
+            try { session.SessionStatusChanged -= OnSessionChanged; } catch { }
+            try { session.Dispose(); } catch { } session = null;
+        }
+        if (dev != null)
+        {
+            try { dev.ConnectionStatusChanged -= OnDevConnChanged; } catch { }
+            try { dev.Dispose(); } catch { } dev = null;
+        }
         f01 = null;
     }
 
