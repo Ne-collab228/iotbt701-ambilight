@@ -26,6 +26,7 @@ Home Assistant), além das nossas próprias capturas nesta unidade.
 | Conversão RGB → HSV | ✅ verificado | helpers C# neste repositório |
 | Ambilight (cor média da tela → fita, GUI, ajustes) | ✅ verificado | `AmbilightOT.exe` |
 | Integração na inicialização + registro de falhas (v1.5) | ✅ verificado | caixa de autostart + `ambilight_log.txt` + janela automática «LINK LOST» |
+| Diagnóstico legível de quedas de link (v1.8) | ✅ verificado | o log mostra o tipo real do erro + HRESULT, eventos de status do dispositivo/GATT e um retrato do estado do link a cada `LINK LOST`; sem worker duplo em Stop/Start rápido |
 | Notificação/leitura de estado (FF02) | ✅ verificado (consulta `81 8A 8B 40` na família `0x0A`; quadro de estado `EA 81 … F0 <matiz> <sat> <brilho>`; os registradores reflejam só o estado do app do celular) | característica `FF02` |
 | Escala de brilho | ✅ verificado: o byte = **porcentagem 0..100**; valores >100 corrompem a cor | byte de brilho v3 |
 

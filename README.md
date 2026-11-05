@@ -24,6 +24,7 @@ Home Assistant integration plus our own captures on this specific unit.
 | RGB → HSV conversion | ✅ verified | C# helpers in this repo |
 | Ambilight (screen average → strip, GUI, settings) | ✅ verified | `AmbilightOT.exe` |
 | Startup integration + failure logging (v1.5) | ✅ verified | startup checkbox + `ambilight_log.txt` + auto "LINK LOST" window |
+| Readable link-drop diagnostics (v1.8) | ✅ verified | log shows real error type + HRESULT, device/GATT status events and a link-state snapshot on every `LINK LOST`; no more double worker on quick Stop/Start |
 | Notify/state readback (FF02) | ✅ verified (query `81 8A 8B 40` in family `0x0A`; status frame `EA 81 … F0 <hue> <sat> <bri>`; registers mirror the *vendor app* state only) | char `FF02` |
 | Brightness scale | ✅ verified: byte = **percent 0..100**; values >100 corrupt colour | v3 brightness byte |
 

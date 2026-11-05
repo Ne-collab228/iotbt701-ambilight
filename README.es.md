@@ -26,6 +26,7 @@ open-source [8none1/lednetwf_ble](https://github.com/8none1/lednetwf_ble)
 | Conversión RGB → HSV | ✅ verificado | helpers C# en este repo |
 | Ambilight (color medio de pantalla → tira, GUI, ajustes) | ✅ verificado | `AmbilightOT.exe` |
 | Integración en el arranque + registro de fallos (v1.5) | ✅ verificado | casilla de autostart + `ambilight_log.txt` + ventana automática «LINK LOST» |
+| Diagnóstico legible de caídas de enlace (v1.8) | ✅ verificado | el registro muestra el tipo de error real + HRESULT, eventos de estado del dispositivo/GATT y una instantánea del estado del enlace en cada `LINK LOST`; sin doble worker al hacer Stop/Start rápido |
 | Notificación/lectura de estado (FF02) | ✅ verificado (consulta `81 8A 8B 40` en familia `0x0A`; trama de estado `EA 81 … F0 <tono> <sat> <brillo>`; los registros reflejan solo el estado de la app del teléfono) | característica `FF02` |
 | Escala de brillo | ✅ verificado: el byte = **porcentaje 0..100**; valores >100 corrompen el color | byte de brillo v3 |
 
