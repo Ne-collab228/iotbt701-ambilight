@@ -275,6 +275,9 @@ public class MainForm : Form
         AppDomain.CurrentDomain.BaseDirectory, "ambilight_log.txt");
     static readonly object logLock = new object();
     bool hadLink = false;          // a live connection existed and then died on its own
+    DateTime lostSince = DateTime.MinValue;   // when the current outage began (MinValue = link ok)
+    bool lostPopupShown = false;              // crash window already shown for this outage
+    const int LostPopupAfterSec = 60;         // only show the window if the strip is gone this long
     NumericUpDown numInterval, numSat, numBri, numMin, numWhite, numWarmHue, numWarmSat, numFade;
     TextBox txtLog;
 
@@ -737,11 +740,21 @@ public class MainForm : Form
             {
                 if (f01 == null)
                 {
+                    if (lostSince != DateTime.MinValue && !lostPopupShown
+                        && (DateTime.Now - lostSince).TotalSeconds >= LostPopupAfterSec)
+                    {
+                        lostPopupShown = true;
+                        Log("strip still unreachable after " + LostPopupAfterSec + " s; log window opened");
+                        UiSafe(delegate { ShowLogWindow(true); });
+                    }
                     UiSafe(delegate { lblStatus.Text = L10n.S(langIdx, L10n.CONNECTING); });
                     if (!Connect()) { Thread.Sleep(6000); continue; }
                     if (!Send(new byte[] { 0x3B, 0x23, 0, 0, 0, 0, 0, 0, 0, 0x32, 0, 0 }, "power on"))
                     { Drop(); Thread.Sleep(4000); continue; }
                     hadLink = true;                 // link proven alive
+                    if (lostSince != DateTime.MinValue)
+                        Log("link recovered after " + (DateTime.Now - lostSince).TotalSeconds.ToString("F1") + " s");
+                    lostSince = DateTime.MinValue; lostPopupShown = false;
                     lqH = -999; lqS = -999; lqB = -999;
                     haveCur = false;
                     UiSafe(delegate { lblStatus.Text = L10n.S(langIdx, L10n.CONNECTED); });
@@ -906,8 +919,8 @@ public class MainForm : Form
         if (hadLink)                     // true self-disconnect (not the initial login)
         {
             hadLink = false;
-            Log("auto-reconnect will try every 6 s; full log opened");
-            UiSafe(delegate { ShowLogWindow(true); });
+            if (lostSince == DateTime.MinValue) lostSince = DateTime.Now;
+            Log("reconnecting silently (error window only if the strip is gone > " + LostPopupAfterSec + " s)");
         }
     }
 
