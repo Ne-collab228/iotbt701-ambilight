@@ -666,7 +666,12 @@ public class MainForm : Form
     }
 
     // ----- shared capture state (capture thread -> render loop) -----
-    sealed class StopFlag { public volatile bool stop; }
+    sealed class StopFlag
+    {
+        public volatile bool stop;
+        public readonly AutoResetEvent trigger = new AutoResetEvent(false);  // render loop -> capture: "grab now"
+        public readonly AutoResetEvent done = new AutoResetEvent(false);     // capture -> render loop: "frame ready"
+    }
     readonly object capLock = new object();
     double capR = 0, capG = 0, capB = 0;
     bool capValid = false;
@@ -677,36 +682,33 @@ public class MainForm : Form
     // ticks at a steady rate no matter how long a screenshot takes.
     void CaptureLoop(int sx, int sy, int sw, int sh, StopFlag flag)
     {
-        Bitmap bigB = null, smallB = null;
-        Graphics gB = null, gSm = null;
+        Bitmap bigB = null;
+        Graphics gB = null;
         try
         {
-            bigB = new Bitmap(sw, sh);
-            smallB = new Bitmap(96, 54);
+            bigB = new Bitmap(sw, sh, PixelFormat.Format32bppArgb);
             gB = Graphics.FromImage(bigB);
-            gSm = Graphics.FromImage(smallB);
             while (running && !flag.stop)
             {
+                // v1.10: capture only when the render loop asks (once per tick) instead of
+                // free-running at ~30 fps; the 200 ms timeout just lets us notice stop.
+                if (!flag.trigger.WaitOne(200)) continue;
                 try
                 {
                     gB.CopyFromScreen(sx, sy, 0, 0, new Size(sw, sh));
-                    gSm.DrawImage(bigB, new Rectangle(0, 0, smallB.Width, smallB.Height),
-                                  new Rectangle(0, 0, sw, sh), GraphicsUnit.Pixel);
                     int r, g, b; double w;
-                    Average(smallB, out r, out g, out b, out w);
+                    AverageSampled(bigB, out r, out g, out b, out w);
                     lock (capLock) { capR = r; capG = g; capB = b; capValid = true; }
                 }
                 catch (Exception ex) { Log("capture: " + ex.Message); Thread.Sleep(1000); }
-                Thread.Sleep(30);
+                flag.done.Set();
             }
         }
         catch (Exception ex) { Log("capture thread: " + ex.Message); }
         finally
         {
             if (gB != null) gB.Dispose();
-            if (gSm != null) gSm.Dispose();
             if (bigB != null) bigB.Dispose();
-            if (smallB != null) smallB.Dispose();
         }
     }
 
@@ -766,6 +768,10 @@ public class MainForm : Form
                 if (!running) break;
                 try
                 {
+                    // grab a fresh frame right now and wait for it (stale value if it hangs)
+                    flag.done.Reset();
+                    flag.trigger.Set();
+                    flag.done.WaitOne(400);
                     double r, g, b; bool ok;
                     lock (capLock) { r = capR; g = capG; b = capB; ok = capValid; }
                     if (!ok) continue;
@@ -1189,29 +1195,35 @@ public class MainForm : Form
         return Color.FromArgb((int)((r + m) * 255), (int)((g + m) * 255), (int)((b + m) * 255));
     }
 
-    static void Average(Bitmap src, out int rAvg, out int gAvg, out int bAvg, out double wSum)
+    // v1.10: no DrawImage downscale. Read a 96x54 grid of points straight from the
+    // captured frame (row by row via Marshal.Copy) and apply the same weighting as before.
+    static void AverageSampled(Bitmap src, out int rAvg, out int gAvg, out int bAvg, out double wSum)
     {
-        Rectangle rect = new Rectangle(0, 0, src.Width, src.Height);
-        BitmapData d = src.LockBits(rect, ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
+        const int GX = 96, GY = 54;
+        int W = src.Width, H = src.Height;
+        BitmapData d = src.LockBits(new Rectangle(0, 0, W, H), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
         double rs = 0, gs = 0, bs = 0, ws = 0;
-        for (int y = 0; y < d.Height; y++)
+        try
         {
-            int rowOff = y * d.Stride;
-            for (int x = 0; x < d.Width; x++)
+            byte[] row = new byte[W * 4];
+            for (int gy = 0; gy < GY; gy++)
             {
-                int off = rowOff + x * 3;
-                int bb = Marshal.ReadByte(d.Scan0, off);
-                int gg = Marshal.ReadByte(d.Scan0, off + 1);
-                int rr = Marshal.ReadByte(d.Scan0, off + 2);
-                int mx = Math.Max(rr, Math.Max(gg, bb)), mn = Math.Min(rr, Math.Min(gg, bb));
-                double satN = (mx <= 0) ? 0 : (double)(mx - mn) / mx;
-                double vN = mx / 255.0;
-                double w = (0.25 + 1.75 * satN) * (0.35 + 0.65 * vN);
-                if (mx < 12) w = 0.02;
-                rs += w * rr; gs += w * gg; bs += w * bb; ws += w;
+                int y = (int)((gy + 0.5) * H / GY);
+                Marshal.Copy(new IntPtr(d.Scan0.ToInt64() + (long)y * d.Stride), row, 0, row.Length);
+                for (int gx = 0; gx < GX; gx++)
+                {
+                    int off = (int)((gx + 0.5) * W / GX) * 4;
+                    int bb = row[off], gg = row[off + 1], rr = row[off + 2];
+                    int mx = Math.Max(rr, Math.Max(gg, bb)), mn = Math.Min(rr, Math.Min(gg, bb));
+                    double satN = (mx <= 0) ? 0 : (double)(mx - mn) / mx;
+                    double vN = mx / 255.0;
+                    double w = (0.25 + 1.75 * satN) * (0.35 + 0.65 * vN);
+                    if (mx < 12) w = 0.02;
+                    rs += w * rr; gs += w * gg; bs += w * bb; ws += w;
+                }
             }
         }
-        src.UnlockBits(d);
+        finally { src.UnlockBits(d); }
         wSum = ws;
         rAvg = ws > 0.1 ? (int)(rs / ws) : 0;
         gAvg = ws > 0.1 ? (int)(gs / ws) : 0;
