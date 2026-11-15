@@ -1,0 +1,1326 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ambilight over BLE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Manrope:wght@400;500;600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+:root{
+  /* layout: 1920x1080 stage scaled to fit; text left, one 3D scene behind or beside it; near-black with the strip's own spectrum as accent */
+  --bg:#05060c; --bg2:#0a0d1c; --ink:#eef1ff; --ink2:#aab3d4; --mute:#7480a8;
+  --line:rgba(150,170,255,.17); --cyan:#35e3ff; --mag:#ff4fd8; --amber:#ffb23e; --lime:#58f2a4; --red:#ff5d73;
+  --disp:'Unbounded','Manrope',system-ui,sans-serif;
+  --body:'Manrope',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+  --ease:cubic-bezier(.22,.8,.2,1);
+  color-scheme:dark;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);overflow:hidden}
+body{font-family:var(--body);color:var(--ink);-webkit-font-smoothing:antialiased;user-select:none}
+#viewport{position:fixed;inset:0;overflow:hidden;background:var(--bg)}
+#stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;overflow:hidden;perspective:2600px;background:radial-gradient(120% 90% at 70% 20%,#0d1130 0%,var(--bg) 60%)}
+
+/* ---------- background ---------- */
+.aurora{position:absolute;inset:-20%;pointer-events:none}
+.aurora i{position:absolute;width:900px;height:900px;border-radius:50%;opacity:.28;animation:drift 26s ease-in-out infinite alternate}
+.aurora i:nth-child(1){left:2%;top:5%;background:radial-gradient(circle,#ff4fd8 0,transparent 62%);animation-duration:30s}
+.aurora i:nth-child(2){right:4%;top:0;background:radial-gradient(circle,#35e3ff 0,transparent 62%);animation-duration:24s;animation-delay:-8s}
+.aurora i:nth-child(3){left:38%;bottom:-6%;background:radial-gradient(circle,#ffb23e 0,transparent 64%);opacity:.16;animation-duration:34s;animation-delay:-14s}
+@keyframes drift{to{transform:translate(120px,-80px) scale(1.18)}}
+.grid{position:absolute;inset:0;pointer-events:none;opacity:.55;
+  background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);
+  background-size:80px 80px;-webkit-mask-image:radial-gradient(75% 70% at 50% 45%,#000 10%,transparent 78%);mask-image:radial-gradient(75% 70% at 50% 45%,#000 10%,transparent 78%)}
+#gl{position:absolute;left:0;top:0;width:1920px;height:1080px;pointer-events:none;opacity:0;transition:opacity .45s ease}
+.brand{position:absolute;left:110px;top:42px;font:600 17px var(--mono);letter-spacing:.2em;color:var(--mute);z-index:5;pointer-events:none}
+.brand b{background:linear-gradient(90deg,var(--cyan),var(--mag),var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent;font-weight:600}
+.sweep{position:absolute;top:-10%;bottom:-10%;width:420px;left:-500px;z-index:30;pointer-events:none;transform:skewX(-18deg);opacity:0;
+  background:linear-gradient(90deg,transparent,rgba(53,227,255,.0) 10%,rgba(53,227,255,.35) 35%,rgba(255,79,216,.45) 55%,rgba(255,178,62,.3) 78%,transparent);mix-blend-mode:screen;filter:blur(6px)}
+
+/* ---------- slides ---------- */
+.slide{position:absolute;inset:0;visibility:hidden;will-change:transform,opacity}
+.slide.active{visibility:visible}
+.pad{position:absolute;inset:0;padding:96px 110px 90px}
+.eyebrow{font:600 21px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--cyan);display:flex;align-items:center;gap:16px}
+.eyebrow::before{content:"";width:46px;height:3px;border-radius:2px;background:linear-gradient(90deg,var(--cyan),var(--mag))}
+h2{font:700 54px/1.1 var(--disp);letter-spacing:-.015em;margin-top:20px;max-width:1500px;text-wrap:balance}
+h2 em{font-style:normal;background:linear-gradient(90deg,var(--cyan),var(--mag) 60%,var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{font-size:27px;line-height:1.5;color:var(--ink2);max-width:1080px;margin-top:22px;text-wrap:pretty}
+.mono{font-family:var(--mono)}
+.grad{background:linear-gradient(90deg,var(--cyan),var(--mag) 55%,var(--amber));background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:gshift 7s linear infinite}
+@keyframes gshift{to{background-position:-200% 0}}
+.card{background:linear-gradient(160deg,rgba(26,32,62,.78),rgba(11,14,30,.82));border:1px solid var(--line);border-radius:22px;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 30px 60px -30px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.05)}
+.pill{display:inline-flex;align-items:center;gap:10px;font:600 20px var(--mono);padding:8px 18px;border-radius:99px;border:1px solid var(--line);background:rgba(20,26,52,.7);color:var(--ink2)}
+.ok{color:var(--lime)} .bad{color:var(--red)} .warn{color:var(--amber)}
+
+/* reveal choreography: .rv items rise in on enter, staggered by --i */
+.rv{opacity:0}
+.slide.play .rv{opacity:1;animation:rv .85s var(--ease) backwards;animation-delay:calc(var(--i,0)*90ms + 220ms)}
+@keyframes rv{from{opacity:0;transform:translateY(34px) scale(.985);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+
+/* ---------- 1 hero ---------- */
+#s1 .pad{padding-top:210px}
+#s1 h1{font:800 138px/.98 var(--disp);letter-spacing:-.035em}
+#s1 h1 span{display:block}
+#s1 .lede{font-size:30px;max-width:900px;margin-top:38px}
+.chips{display:flex;gap:14px;flex-wrap:wrap;margin-top:40px}
+#s1 .hint{position:absolute;left:110px;bottom:84px;font:500 19px var(--mono);color:var(--mute);letter-spacing:.06em}
+#s1 .hint kbd{font:600 17px var(--mono);border:1px solid var(--line);border-radius:8px;padding:3px 10px;margin:0 4px;background:rgba(20,26,52,.7);color:var(--ink2)}
+
+/* ---------- 2 kpi ---------- */
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:22px;margin-top:44px}
+.kpi{padding:30px 28px 28px;min-height:300px;position:relative;overflow:hidden}
+.kpi::after{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,var(--cyan),var(--mag),var(--amber));opacity:.9}
+.kn{font:800 82px/1 var(--disp);letter-spacing:-.04em;white-space:nowrap}
+.kn small{font:700 38px var(--disp);letter-spacing:-.02em}
+.kl{font:700 25px/1.25 var(--body);margin-top:20px;color:var(--ink)}
+.ks{font:400 21px/1.4 var(--body);margin-top:10px;color:var(--ink2)}
+
+/* ---------- 3 how ---------- */
+.pipe{position:absolute;left:110px;right:110px;bottom:84px;display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
+.step{padding:22px 24px;position:relative}
+.step .n{font:600 18px var(--mono);color:var(--cyan);letter-spacing:.12em}
+.step b{display:block;font:700 24px/1.25 var(--body);margin-top:8px}
+.step span{display:block;font-size:19px;line-height:1.4;color:var(--ink2);margin-top:6px}
+.step::after{content:"";position:absolute;inset:-1px;border-radius:22px;border:2px solid var(--cyan);opacity:0;box-shadow:0 0 36px rgba(53,227,255,.55),inset 0 0 22px rgba(53,227,255,.25);animation:chip 6s linear infinite;animation-delay:calc(var(--k)*1.2s)}
+@keyframes chip{0%{opacity:0}4%{opacity:1}18%{opacity:1}24%,100%{opacity:0}}
+.flowtag{position:absolute;font:600 20px var(--mono);letter-spacing:.06em;padding:8px 16px;border-radius:12px;border:1px solid var(--line);background:rgba(8,10,22,.75);white-space:nowrap}
+
+/* ---------- 4 timeline ---------- */
+.tl{position:absolute;left:110px;right:110px;top:290px;height:700px}
+.tl .line{position:absolute;left:0;right:0;top:320px;height:4px;border-radius:2px;background:linear-gradient(90deg,var(--cyan),var(--mag),var(--amber));transform:scaleX(0);transform-origin:0 50%;box-shadow:0 0 24px rgba(255,79,216,.55)}
+.slide.play .tl .line{transform:scaleX(1);transition:transform 2.4s var(--ease) .3s}
+.tn{position:absolute;top:310px;width:24px;height:24px;margin-left:-12px;border-radius:50%;background:var(--bg);border:4px solid var(--cyan);transform:scale(0);box-shadow:0 0 22px var(--cyan)}
+.slide.play .tn{transform:scale(1);transition:transform .5s var(--ease);transition-delay:calc(var(--i)*.32s + .5s)}
+.tc{position:absolute;width:400px;padding:20px 24px 22px;opacity:0}
+.slide.play .tc{opacity:1;animation:rv .8s var(--ease) backwards;animation-delay:calc(var(--i)*.32s + .7s)}
+.tc.up{bottom:410px}.tc.dn{top:376px}
+.tc::after{content:"";position:absolute;left:50%;width:2px;height:34px;background:linear-gradient(var(--cyan),transparent);opacity:.7}
+.tc.up::after{top:100%}.tc.dn::after{bottom:100%;transform:rotate(180deg)}
+.tc time{font:600 18px var(--mono);color:var(--amber);letter-spacing:.08em}
+.tc h3{font:700 25px/1.2 var(--disp);margin:8px 0 8px;letter-spacing:-.01em}
+.tc p{font-size:19px;line-height:1.42;color:var(--ink2)}
+
+/* ---------- 5 ble map ---------- */
+#map{position:absolute;left:110px;top:270px;width:1700px;height:360px;overflow:visible}
+.dash{stroke-dasharray:14 12;animation:dash 1.1s linear infinite}
+.dash.rev{animation-direction:reverse}
+@keyframes dash{to{stroke-dashoffset:-26}}
+.algo{position:absolute;left:110px;right:110px;top:672px;display:grid;grid-template-columns:repeat(5,1fr);gap:16px}
+.algo .step b{font-size:22px}
+.note{position:absolute;left:110px;right:110px;bottom:60px;padding:16px 26px;font-size:21px;line-height:1.45;color:var(--ink2);display:flex;gap:16px;align-items:center}
+.note b{color:var(--amber);font-weight:700;white-space:nowrap}
+
+/* ---------- 6 protocol ---------- */
+.frame{position:absolute;left:110px;top:330px;display:flex;gap:14px;align-items:flex-start}
+.grp{display:flex;flex-direction:column;align-items:center;cursor:default;transition:transform .25s var(--ease),filter .25s}
+.grp .bytes{display:flex;gap:4px}
+.byte{width:58px;height:82px;border-radius:12px;display:grid;place-items:center;font:600 30px var(--mono);border:1px solid var(--c);color:var(--c);background:linear-gradient(180deg,color-mix(in srgb,var(--c) 16%,transparent),color-mix(in srgb,var(--c) 5%,transparent));box-shadow:0 0 0 rgba(0,0,0,0);transition:box-shadow .25s,background .25s}
+.grp .br{height:10px;width:100%;margin-top:12px;border:2px solid var(--c);border-top:none;border-radius:0 0 8px 8px;opacity:.55}
+.grp .gl{margin-top:8px;font:600 17px var(--mono);color:var(--c);white-space:nowrap;letter-spacing:.02em}
+.grp:hover,.grp.hi{transform:translateY(-8px)}
+.grp:hover .byte,.grp.hi .byte{box-shadow:0 0 30px color-mix(in srgb,var(--c) 70%,transparent);background:color-mix(in srgb,var(--c) 26%,transparent)}
+.slide.play .byte{animation:bin .6s var(--ease) backwards;animation-delay:calc(var(--k)*45ms + 350ms)}
+@keyframes bin{from{opacity:0;transform:translateY(-60px) rotateX(70deg)}to{opacity:1;transform:none}}
+.ctl{position:absolute;left:110px;top:560px;width:760px;padding:30px 36px 32px}
+.row{display:grid;grid-template-columns:150px 1fr 120px;align-items:center;gap:20px;margin-top:20px}
+.row:first-of-type{margin-top:0}
+.row label{font:600 21px var(--mono);color:var(--ink2)}
+.row output{font:600 26px var(--mono);text-align:right}
+input[type=range]{-webkit-appearance:none;appearance:none;height:8px;border-radius:6px;background:linear-gradient(90deg,var(--g1),var(--g2));outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:30px;border-radius:50%;background:#fff;border:4px solid var(--bg);box-shadow:0 0 0 2px var(--cyan),0 0 18px var(--cyan)}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:#fff;border:4px solid var(--bg);box-shadow:0 0 0 2px var(--cyan)}
+input[type=range]:focus-visible{outline:3px solid var(--cyan);outline-offset:6px}
+#sw{position:absolute;left:910px;top:560px;width:260px;height:260px;border-radius:26px;border:1px solid var(--line);box-shadow:0 0 90px var(--swc,#f80),inset 0 0 0 6px rgba(5,6,12,.5);transition:none}
+.info{position:absolute;left:1210px;top:560px;width:600px;min-height:260px;padding:28px 32px}
+.info h4{font:700 26px var(--disp);letter-spacing:-.01em}
+.info p{font-size:22px;line-height:1.5;color:var(--ink2);margin-top:12px}
+.calc{position:absolute;left:910px;right:110px;top:850px;font:500 22px/1.7 var(--mono);color:var(--ink2)}
+.calc b{color:var(--mag);font-weight:600}
+.cap{position:absolute;left:110px;top:862px;width:760px;font-size:19px;color:var(--mute);line-height:1.4}
+
+/* ---------- 7 commands ---------- */
+.tbl{position:absolute;left:110px;top:300px;width:1010px;padding:10px 0}
+.tr{display:grid;grid-template-columns:330px 1fr 180px;gap:18px;align-items:center;padding:17px 30px;border-bottom:1px solid rgba(150,170,255,.09)}
+.tr:last-child{border-bottom:none}
+.tr .a{font:600 21px var(--mono);color:var(--ink)}
+.tr .b{font:500 17px/1.35 var(--mono);color:var(--ink2)}
+.tr .s{font:700 20px var(--mono);text-align:right}
+.fams{position:absolute;left:1170px;top:300px;width:640px;display:grid;gap:20px;perspective:1200px}
+.fam{padding:24px 28px;transform-style:preserve-3d;transition:transform .2s ease-out,box-shadow .3s;will-change:transform}
+.fam.mine{border-color:rgba(53,227,255,.7);box-shadow:0 0 50px rgba(53,227,255,.25),inset 0 0 40px rgba(53,227,255,.07)}
+.fam h4{font:700 26px var(--disp);letter-spacing:-.01em;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.fam h4 i{font:600 16px var(--mono);font-style:normal;color:var(--bg);background:var(--cyan);padding:5px 12px;border-radius:99px;letter-spacing:.04em}
+.fam dl{display:grid;grid-template-columns:150px 1fr;gap:8px 12px;margin-top:14px;font-size:20px}
+.fam dt{color:var(--mute)} .fam dd{font:500 20px var(--mono);color:var(--ink)}
+.fnote{position:absolute;left:110px;top:944px;font-size:21px;color:var(--ink2);width:1010px;line-height:1.45}
+.fnote b{color:var(--amber)}
+
+/* ---------- charts ---------- */
+.chart{position:absolute;left:110px;top:290px}
+.chart svg{display:block;overflow:visible}
+.chart text{font-family:var(--mono);fill:var(--ink2)}
+.bar path{transform-box:fill-box;transform-origin:50% 100%;transform:scaleY(0)}
+.slide.play .bar path{transform:scaleY(1);transition:transform 1.1s var(--ease);transition-delay:calc(var(--i)*.22s + .5s)}
+.bar .v{opacity:0}
+.slide.play .bar .v{opacity:1;transition:opacity .5s .9s;transition-delay:calc(var(--i)*.22s + 1.0s)}
+.bar:hover path{filter:brightness(1.25) drop-shadow(0 0 14px rgba(53,227,255,.7))}
+.hit{fill:transparent;cursor:pointer}
+.side{position:absolute;left:1260px;top:290px;width:550px}
+.big{padding:34px 36px}
+.big .bn{font:800 96px/1 var(--disp);letter-spacing:-.04em}
+.big p{font-size:23px;line-height:1.5;color:var(--ink2);margin-top:14px}
+.quote{margin-top:22px;padding:24px 30px;border-left:4px solid var(--mag);font:700 27px/1.35 var(--disp);letter-spacing:-.01em}
+#tip{position:absolute;z-index:40;pointer-events:none;padding:12px 18px;border-radius:14px;background:rgba(10,13,28,.94);border:1px solid rgba(53,227,255,.5);font:500 20px/1.4 var(--mono);color:var(--ink);opacity:0;transform:translateY(6px);transition:opacity .15s,transform .15s;white-space:nowrap;box-shadow:0 14px 40px rgba(0,0,0,.6)}
+#tip.on{opacity:1;transform:none}
+
+/* ---------- 9 soak ---------- */
+.soaks{position:absolute;left:110px;right:110px;top:290px;display:grid;grid-template-columns:1fr 1fr;gap:28px}
+.soak{padding:32px 36px}
+.soak header{display:flex;align-items:center;gap:30px}
+.ring{width:170px;height:170px;flex:none}
+.ring circle{fill:none;stroke-width:12;stroke-linecap:round}
+.ring .t{stroke:rgba(150,170,255,.14)}
+.ring .p{stroke:var(--lime);stroke-dasharray:1;stroke-dashoffset:1;filter:drop-shadow(0 0 10px rgba(88,242,164,.7))}
+.slide.play .ring .p{stroke-dashoffset:0;transition:stroke-dashoffset 2.2s var(--ease) .6s}
+.soak h4{font:600 20px var(--mono);color:var(--amber);letter-spacing:.08em}
+.soak .sn{font:800 64px/1.05 var(--disp);letter-spacing:-.04em;margin-top:6px}
+.soak .sn small{font:600 28px var(--mono);color:var(--ink2);letter-spacing:0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:26px}
+.stats div{font:500 18px var(--mono);color:var(--mute)}
+.stats b{display:block;font:700 28px var(--mono);color:var(--ink);margin-top:4px}
+.dots{display:flex;flex-wrap:wrap;gap:6px;margin-top:26px}
+.dots i{width:18px;height:18px;border-radius:5px;background:var(--lime);opacity:0;box-shadow:0 0 10px rgba(88,242,164,.5)}
+.slide.play .dots i{opacity:.95;animation:dot .4s var(--ease) backwards;animation-delay:calc(var(--d)*7ms + 900ms)}
+@keyframes dot{from{opacity:0;transform:scale(.2)}to{opacity:.95;transform:none}}
+.dnote{font:500 17px var(--mono);color:var(--mute);margin-top:14px}
+.conc{position:absolute;left:110px;right:110px;bottom:70px;padding:22px 32px;font-size:23px;line-height:1.5;color:var(--ink2)}
+.conc b{color:var(--ink)}
+
+/* ---------- 10 brightness ---------- */
+.bandwrap{position:absolute;left:110px;top:430px;width:1700px}
+.band{display:flex;height:88px;border-radius:20px;overflow:hidden;gap:4px}
+.band div{display:grid;place-items:center;font:700 22px var(--mono);color:#06070d;transform-origin:0 50%;transform:scaleX(0)}
+.slide.play .band div{transform:scaleX(1);transition:transform .8s var(--ease);transition-delay:calc(var(--i)*.18s + .4s)}
+.scale{position:relative;height:34px;margin-top:10px;font:500 18px var(--mono);color:var(--mute)}
+.scale span{position:absolute;top:0;transform:translateX(-50%)}
+#bsl{position:absolute;left:-14px;top:12px;width:1728px;height:64px;background:transparent;cursor:ew-resize;margin:0;z-index:2;--g1:transparent;--g2:transparent}
+#bsl::-webkit-slider-thumb{width:20px;height:104px;border-radius:10px;margin-top:0;border:3px solid #fff;background:rgba(5,6,12,.35);box-shadow:0 0 24px #fff}
+#bsl::-moz-range-thumb{width:14px;height:100px;border-radius:10px;border:3px solid #fff;background:rgba(5,6,12,.35)}
+.zones{position:absolute;left:110px;right:110px;top:640px;display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.zone{padding:22px 24px;transition:transform .3s var(--ease),box-shadow .3s,border-color .3s}
+.zone.on{transform:translateY(-10px);border-color:var(--zc);box-shadow:0 0 44px color-mix(in srgb,var(--zc) 35%,transparent)}
+.zone b{display:block;font:700 22px var(--mono);color:var(--zc)}
+.zone span{display:block;font-size:21px;line-height:1.4;color:var(--ink2);margin-top:8px}
+#bread{position:absolute;left:110px;top:866px;font:600 34px var(--mono)}
+#bread em{font-style:normal}
+
+/* ---------- 11 evolution ---------- */
+.myths{position:absolute;left:1180px;top:290px;width:630px;display:grid;gap:26px}
+.myth{padding:40px 30px;display:grid;grid-template-columns:1fr 54px 1fr;align-items:center;gap:6px}
+.myth .o{font:600 26px var(--mono);color:var(--mute);position:relative;justify-self:start}
+.myth .o::after{content:"";position:absolute;left:-4px;right:-4px;top:55%;height:3px;background:var(--red);transform:scaleX(0);transform-origin:0 50%;box-shadow:0 0 12px var(--red)}
+.slide.play .myth .o::after{transform:scaleX(1);transition:transform .5s var(--ease);transition-delay:calc(var(--i)*.35s + 1.4s)}
+.myth .ar{font:600 28px var(--mono);color:var(--cyan);text-align:center}
+.myth .n{font:700 30px/1.2 var(--body);color:var(--lime)}
+.myth small{display:block;font:400 17px var(--mono);color:var(--mute);margin-top:5px}
+.line-p{fill:none;stroke:url(#gEvo);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;filter:drop-shadow(0 0 12px rgba(255,79,216,.6))}
+.slide.play .line-p{stroke-dashoffset:0;transition:stroke-dashoffset 2s var(--ease) .5s}
+.area-p{opacity:0}.slide.play .area-p{opacity:1;transition:opacity 1.2s 1.4s}
+.mk{transform-box:fill-box;transform-origin:center;transform:scale(0)}
+.slide.play .mk{transform:scale(1);transition:transform .5s var(--ease);transition-delay:calc(var(--i)*.8s + .6s)}
+.mv{opacity:0}.slide.play .mv{opacity:1;transition:opacity .5s;transition-delay:calc(var(--i)*.8s + 1.0s)}
+
+/* ---------- 12 hunt ---------- */
+.sym{position:absolute;left:110px;top:290px;width:640px;padding:26px 30px;font-size:21px;line-height:1.5;color:var(--ink2)}
+.sym b{color:var(--ink)}
+#huntcap{position:absolute;left:110px;top:926px;width:640px;font:600 22px var(--mono);letter-spacing:.04em;padding:12px 20px;border-radius:14px;border:1px solid var(--line);background:rgba(8,10,22,.8);transition:color .3s,border-color .3s}
+.hyp{position:absolute;left:800px;right:110px;top:290px;display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.h{padding:24px 26px;position:relative}
+.h .hn{font:800 54px/1 var(--disp);position:absolute;right:22px;top:14px;opacity:.16;letter-spacing:-.04em}
+.h b{display:block;font:700 23px/1.25 var(--body);padding-right:46px}
+.h p{font-size:19px;line-height:1.42;color:var(--ink2);margin-top:8px}
+.h .chk{font-size:18px;line-height:1.4;color:var(--ink);margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
+.h .chk i{font:600 15px var(--mono);font-style:normal;color:var(--cyan);display:block;margin-bottom:3px;letter-spacing:.1em}
+.notc{position:absolute;left:800px;right:110px;bottom:62px;padding:18px 28px;font-size:21px;line-height:1.45;color:var(--ink2)}
+.notc b{color:var(--lime)}
+
+/* ---------- 13 tools ---------- */
+.tools{position:absolute;left:110px;top:290px;width:860px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.tool{padding:22px 26px}
+.tool.wide{grid-column:1/3}
+.tool code{font:700 24px var(--mono);color:var(--cyan)}
+.tool p{font-size:20px;line-height:1.4;color:var(--ink2);margin-top:8px}
+.repo{position:absolute;left:110px;top:870px;width:860px;display:flex;flex-wrap:wrap;gap:10px}
+.repo .pill{font-size:17px;padding:6px 14px}
+.rel{position:absolute;left:1020px;top:290px;width:790px;padding-left:46px}
+.rel::before{content:"";position:absolute;left:12px;top:14px;bottom:14px;width:4px;border-radius:2px;background:linear-gradient(var(--cyan),var(--mag),var(--amber));transform:scaleY(0);transform-origin:50% 0;box-shadow:0 0 20px rgba(255,79,216,.5)}
+.slide.play .rel::before{transform:scaleY(1);transition:transform 1.8s var(--ease) .4s}
+.rl{position:relative;padding:0 0 15px}
+.rl::before{content:"";position:absolute;left:-44px;top:5px;width:20px;height:20px;border-radius:50%;background:var(--bg);border:4px solid var(--cyan);box-shadow:0 0 16px var(--cyan)}
+.rl.next::before{border-color:var(--amber);box-shadow:0 0 16px var(--amber)}
+.rl h4{font:700 22px/1.25 var(--disp);letter-spacing:-.01em}
+.rl h4 span{font:500 19px var(--body);color:var(--ink2);margin-left:14px;letter-spacing:0}
+.rl h4 i{font:600 16px var(--mono);font-style:normal;color:var(--amber);margin-left:10px;letter-spacing:.06em}
+.rl p{font-size:20px;line-height:1.4;color:var(--ink2);margin-top:5px}
+.rl code{display:block;margin-top:2px;font:500 16px var(--mono);color:var(--mute)}
+
+/* ---------- 14 backlog ---------- */
+.board{position:absolute;left:110px;top:290px;width:1000px;display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.col{padding:22px 26px}
+.col h4{font:600 19px var(--mono);letter-spacing:.12em;text-transform:uppercase;display:flex;justify-content:space-between}
+.col ul{list-style:none;margin-top:12px}
+.col li{font-size:20px;line-height:1.35;color:var(--ink);padding:8px 0 8px 34px;position:relative;border-top:1px solid rgba(150,170,255,.09)}
+.col li::before{content:"";position:absolute;left:4px;top:14px;width:14px;height:14px;border-radius:4px;background:var(--cc)}
+.col li small{display:block;font-size:17px;color:var(--mute);margin-top:2px}
+.col.done{--cc:var(--lime);grid-row:1/3}
+.col.wip{--cc:var(--amber)}.col.next{--cc:var(--cyan)}
+.end{position:absolute;left:1190px;top:290px;width:620px}
+.end ol{list-style:none;counter-reset:c;display:grid;gap:18px}
+.end li{counter-increment:c;position:relative;padding:20px 26px 20px 84px;font-size:22px;line-height:1.45;color:var(--ink2)}
+.end li::before{content:counter(c);position:absolute;left:24px;top:16px;font:800 40px var(--disp);background:linear-gradient(180deg,var(--cyan),var(--mag));-webkit-background-clip:text;background-clip:text;color:transparent}
+.end li b{color:var(--ink)}
+.sign{position:absolute;left:110px;bottom:70px;font:800 44px/1.2 var(--disp);letter-spacing:-.02em}
+
+
+/* ---------- 4b releases ---------- */
+.rline{position:absolute;left:110px;right:110px;top:330px;height:4px;border-radius:2px;background:linear-gradient(90deg,var(--cyan),var(--mag),var(--amber));transform:scaleX(0);transform-origin:0 50%;box-shadow:0 0 24px rgba(255,79,216,.55)}
+.slide.play .rline{transform:scaleX(1);transition:transform 2s var(--ease) .3s}
+.rnodes{position:absolute;left:110px;right:110px;top:318px;display:grid;grid-template-columns:repeat(4,1fr);gap:24px}
+.rn{justify-self:center;width:28px;height:28px;border-radius:50%;background:var(--bg);border:4px solid var(--cyan);box-shadow:0 0 22px var(--cyan);transform:scale(0)}
+.slide.play .rn{transform:scale(1);transition:transform .5s var(--ease);transition-delay:calc(var(--i)*.4s + .6s)}
+.rgrid{position:absolute;left:110px;right:110px;top:384px;display:grid;grid-template-columns:repeat(4,1fr);gap:24px}
+.rc{padding:26px 28px 30px;opacity:0;transform-style:preserve-3d;transition:transform .2s ease-out}
+.slide.play .rc{opacity:1;animation:rv .8s var(--ease) backwards;animation-delay:calc(var(--i)*.4s + .8s)}
+.rv0{font:800 60px/1 var(--disp);letter-spacing:-.04em;background:linear-gradient(90deg,var(--cyan),var(--mag) 60%,var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent}
+.rc time{display:block;margin-top:12px;font:600 19px var(--mono);color:var(--amber);letter-spacing:.08em}
+.rc h3{font:700 25px/1.2 var(--disp);margin:10px 0 12px;letter-spacing:-.01em}
+.rc ul{list-style:none}
+.rc li{font-size:20px;line-height:1.4;color:var(--ink2);padding:8px 0 8px 22px;position:relative;border-top:1px solid rgba(150,170,255,.1)}
+.rc li::before{content:"";position:absolute;left:2px;top:17px;width:9px;height:9px;border-radius:3px;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+
+/* ---------- 4c smooth demo ---------- */
+.wheelbox{position:absolute;left:110px;top:300px;width:620px;height:620px}
+.wring{position:absolute;inset:30px;border-radius:50%;background:conic-gradient(from 0deg,#ff3b3b,#ffe03b,#3bff4a,#3bffff,#3b4aff,#ff3bff,#ff3b3b);-webkit-mask:radial-gradient(circle,transparent 0 222px,#000 223px 279px,transparent 280px);mask:radial-gradient(circle,transparent 0 222px,#000 223px 279px,transparent 280px);opacity:.9}
+#wsv{position:absolute;inset:0;width:620px;height:620px;overflow:visible}
+.wc{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:340px;text-align:center}
+.wsw{width:130px;height:130px;border-radius:50%;margin:0 auto 18px;background:#f80;border:3px solid rgba(255,255,255,.55)}
+.wc b{display:block;font:700 34px var(--disp);letter-spacing:-.02em}
+.wc span{display:block;font-size:19px;line-height:1.4;color:var(--ink2);margin-top:8px}
+.sm{position:absolute;left:790px;top:290px;width:1020px;padding:26px 30px 28px}
+.smh{font:700 24px var(--disp);letter-spacing:-.01em}
+.smh #sni{display:block;margin-top:10px}
+#sni{font:500 19px var(--mono);color:var(--ink2);letter-spacing:0}
+#sni b{color:var(--cyan)}
+#smChart svg{display:block;overflow:visible}
+#smChart text{font-family:var(--mono)}
+.sp{fill:none;stroke:url(#gSm);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:1;stroke-dashoffset:1;animation:dr 1.1s var(--ease) forwards;filter:drop-shadow(0 0 10px rgba(255,79,216,.5))}
+@keyframes dr{to{stroke-dashoffset:0}}
+.smk{animation:mk .4s var(--ease) backwards;animation-delay:calc(var(--k)*70ms + 200ms);transform-box:fill-box;transform-origin:center}
+@keyframes mk{from{opacity:0;transform:scale(0)}to{opacity:1;transform:none}}
+.led{display:grid;grid-template-columns:repeat(15,1fr);gap:6px;margin-top:8px}
+.led i{height:44px;border-radius:8px;transition:background .5s}
+.smc{display:grid;grid-template-columns:340px 1fr 50px;gap:20px;align-items:center;margin-top:22px}
+.smc label{font:600 20px var(--mono);color:var(--ink2)}
+.smc output{font:700 30px var(--mono);text-align:right}
+.cap2{position:absolute;left:110px;top:940px;width:620px;font-size:17px;line-height:1.45;color:var(--mute)}
+@media (prefers-reduced-motion:reduce){.sp,.smk{animation:none!important;stroke-dashoffset:0!important}}
+
+/* ---------- 12b drops ---------- */
+.dl{position:absolute;left:110px;top:290px;width:560px;display:grid;gap:20px}
+.dbig{padding:30px 34px}
+.dbig .bn{font:800 120px/1 var(--disp);letter-spacing:-.04em}
+.dbig p{font-size:23px;line-height:1.45;color:var(--ink2);margin-top:14px}
+.df{padding:24px 30px;font-size:23px;line-height:1.45;color:var(--ink2)}
+.df b{color:var(--ink)}
+.dc{position:absolute;left:710px;top:290px;width:1100px;padding:24px 30px 14px}
+.dct{font:700 24px var(--disp);letter-spacing:-.01em;margin-bottom:4px}
+#dropChart svg{display:block;overflow:visible}
+.rb{transform-box:fill-box;transform-origin:0 50%;transform:scaleX(0)}
+.slide.play .rb{transform:scaleX(1);transition:transform 1.1s var(--ease);transition-delay:calc(var(--i)*.45s + .7s)}
+.rtx{opacity:0}
+.slide.play .rtx{opacity:1;transition:opacity .5s;transition-delay:calc(var(--i)*.45s + 1.2s)}
+.dx,.dy{position:absolute;top:772px;padding:20px 28px 22px}
+.dx{left:710px;width:520px}.dy{left:1250px;width:560px}
+.dx h4,.dy h4{font:600 19px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.dx ul,.dy ul{list-style:none;margin-top:8px}
+.dx li,.dy li{font-size:19px;line-height:1.4;color:var(--ink2);padding:5px 0 5px 22px;position:relative}
+.dx li::before,.dy li::before{content:"";position:absolute;left:2px;top:13px;width:9px;height:9px;border-radius:3px;background:var(--mute)}
+
+/* ---------- 12c solution ---------- */
+.ba{position:absolute;left:110px;top:290px;width:1000px;padding:28px 50px 20px}
+.ba svg{display:block;overflow:visible}
+.gp{opacity:0}
+.slide.play .gp{opacity:1;transition:opacity .4s;transition-delay:calc(var(--d)*.55s + .8s)}
+.pop{opacity:0;transform-box:fill-box;transform-origin:center;transform:scale(.4)}
+.slide.play .pop{opacity:1;transform:scale(1);transition:opacity .35s,transform .45s var(--ease);transition-delay:calc(var(--d)*.55s + .9s)}
+.ck{position:absolute;left:1150px;top:290px;width:660px;display:grid;gap:18px}
+.ckh{font:700 24px var(--disp);letter-spacing:-.01em}
+.ci{padding:22px 26px;display:grid;grid-template-columns:54px 1fr;gap:14px;font-size:20px;line-height:1.45;color:var(--ink2)}
+.ci span{font:800 42px/1 var(--disp);background:linear-gradient(180deg,var(--cyan),var(--mag));-webkit-background-clip:text;background-clip:text;color:transparent}
+.ci b{display:block;color:var(--ink);font-size:21px;margin-bottom:4px}
+.bn2{position:absolute;left:110px;right:110px;top:880px;padding:20px 30px;font-size:21px;line-height:1.5;color:var(--ink2)}
+.bn2 b{color:var(--ink)}
+
+.nogl #s1::before{content:"";position:absolute;right:140px;top:220px;width:780px;height:560px;border-radius:44px;background:linear-gradient(135deg,var(--cyan),var(--mag),var(--amber));opacity:.3;filter:blur(46px)}
+/* ---------- HUD ---------- */
+#hud{position:fixed;left:0;right:0;bottom:0;z-index:10;display:flex;align-items:center;justify-content:center;gap:14px;padding:0 0 14px;pointer-events:none;opacity:.9}
+#hud button{pointer-events:auto;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:rgba(10,13,28,.72);color:var(--ink);font:600 18px var(--mono);cursor:pointer;display:grid;place-items:center;transition:background .2s,box-shadow .2s}
+#hud button:hover{background:rgba(53,227,255,.18);box-shadow:0 0 18px rgba(53,227,255,.4)}
+#hud button:focus-visible{outline:3px solid var(--cyan);outline-offset:3px}
+#ctr{font:600 16px var(--mono);color:var(--ink2);min-width:84px;text-align:center;letter-spacing:.1em;background:rgba(10,13,28,.6);padding:8px 14px;border-radius:99px}
+#prog{position:fixed;left:0;bottom:0;height:4px;width:100%;z-index:11;background:rgba(150,170,255,.1)}
+#prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--cyan),var(--mag),var(--amber));box-shadow:0 0 14px var(--mag);transition:width .7s var(--ease)}
+
+@media (prefers-reduced-motion:reduce){
+  .rv,.tc,.byte,.dots i,.mv,.area-p{animation:none!important;opacity:1!important}
+  .aurora i,.grad,.dash,.step::after{animation:none!important}
+  .bar path,.band div,.tn,.mk,.line-p,.ring .p,.tl .line,.rel::before,.myth .o::after{transition:none!important;transform:none!important;stroke-dashoffset:0!important}
+  .bar .v{opacity:1!important}
+}
+</style>
+</head>
+<body>
+<div id="viewport">
+<div id="stage">
+  <div class="aurora"><i></i><i></i><i></i></div>
+  <div class="grid"></div>
+  <canvas id="gl" aria-hidden="true"></canvas>
+  <div class="brand"><b>AMBILIGHT</b> · IOTBT701 · BLE</div>
+  <div class="sweep" id="sweep"></div>
+  <div id="tip" role="status"></div>
+
+<!-- 1 ============ TITLE ============ -->
+<section class="slide" id="s1" data-scene="hero" data-ox="-400" data-oy="-20" data-cz="1.12" data-tr="zoom">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">Аналитический отчёт · 29.10 – 08.11.2026 · 6 сессий</div>
+    <h1 style="margin-top:34px"><span class="rv" style="--i:1">Ambilight</span><span class="rv grad" style="--i:2">over BLE</span></h1>
+    <p class="lede rv" style="--i:3">Управление RGB-лентой IOTBT701 с ноутбука на Windows. Без телефона, без сопряжения, на чистом Win32/.NET.</p>
+    <div class="chips rv" style="--i:4">
+      <span class="pill"><span class="ok">●</span> GUI v1.9</span>
+      <span class="pill">MIT · github.com/Ne-collab228/iotbt701-ambilight</span>
+    </div>
+  </div>
+  <div class="hint rv" style="--i:6">листайте <kbd>←</kbd><kbd>→</kbd> · <kbd>F</kbd> во весь экран · тяните ползунки на слайдах 6, 8 и 12</div>
+</section>
+
+<!-- 2 ============ KPI ============ -->
+<section class="slide" id="s2" data-scene="ribbon" data-ox="0" data-oy="-380" data-cz="1.35" data-tr="cube">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">02 · Итог шести сессий</div>
+    <h2 class="rv" style="--i:1">Готовый продукт, а не <em>скрипт</em></h2>
+    <p class="lede rv" style="--i:2">Лента повторяет средний цвет экрана ноутбука. Итог: GUI-программа, открытый репозиторий с полными протокольными доками и набор CLI-инструментов.</p>
+    <div class="kpis">
+      <div class="kpi card rv" style="--i:3"><div class="kn grad">v1.9</div><div class="kl">версия GUI</div><div class="ks">тёмный интерфейс, плавность по времени, тихий реконнект</div></div>
+      <div class="kpi card rv" style="--i:4"><div class="kn grad"><span class="cnt" data-to="10">0</span></div><div class="kl">коммитов</div><div class="ks">MIT, публичный репозиторий</div></div>
+      <div class="kpi card rv" style="--i:5"><div class="kn grad"><span class="cnt" data-to="5">0</span></div><div class="kl">языков документации</div><div class="ks">EN / RU / ES / ZH / PT-BR</div></div>
+      <div class="kpi card rv" style="--i:6"><div class="kn grad"><span class="cnt" data-to="16.9" data-dec="1">0</span><small>/с</small></div><div class="kl">записей в секунду</div><div class="ks">устойчивый темп, soak 24.4 мин</div></div>
+      <div class="kpi card rv" style="--i:7"><div class="kn grad"><span class="cnt" data-to="101">0</span></div><div class="kl">обрыв линка залогирован</div><div class="ks">02–08.11, причина не найдена</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 ============ HOW IT WORKS ============ -->
+<section class="slide" id="s3" data-scene="flow" data-ox="0" data-oy="-40" data-cz="1.5" data-tr="rise">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">03 · Как это работает</div>
+    <h2 class="rv" style="--i:1">От экрана до ленты за <em>50 мс</em></h2>
+  </div>
+  <div class="flowtag rv" style="--i:3;left:740px;top:285px;color:var(--cyan)">FF01 · Write Without Response  →</div>
+  <div class="flowtag rv" style="--i:4;left:735px;top:742px;color:var(--mag)">←  FF02 · Notify · статус-кадр EA 81</div>
+  <div class="pipe">
+    <div class="step card rv" style="--i:5;--k:0"><div class="n">01</div><b>Скриншот</b><span>захват экрана в отдельном потоке</span></div>
+    <div class="step card rv" style="--i:6;--k:1"><div class="n">02</div><b>Взвешенное среднее</b><span>один цвет на весь кадр</span></div>
+    <div class="step card rv" style="--i:7;--k:2"><div class="n">03</div><b>Сглаживание</b><span>EMA, плавность в HSV по времени, смешивание с белым</span></div>
+    <div class="step card rv" style="--i:8;--k:3"><div class="n">04</div><b>Кадр v3</b><span>hue чётный, sat и bri в процентах</span></div>
+    <div class="step card rv" style="--i:9;--k:4"><div class="n">05</div><b>BLE Write</b><span>GATT напрямую, авто-реконнект</span></div>
+  </div>
+</section>
+
+<!-- 4 ============ TIMELINE ============ -->
+<section class="slide" id="s4" data-tr="wipe">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">04 · Хронология</div>
+    <h2 class="rv" style="--i:1">Пять дней от первого скана до <em>v1.5</em></h2>
+  </div>
+  <div class="tl" id="tl"><div class="line"></div></div>
+</section>
+
+
+<!-- 4b ============ RELEASES v1.6-v1.9 ============ -->
+<section class="slide" id="s4b" data-tr="rise">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">00 · Релизы v1.6–v1.9</div>
+    <h2 class="rv" style="--i:1">Ещё четыре релиза за неделю: <em>v1.6–v1.9</em></h2>
+  </div>
+  <div class="rline"></div>
+  <div class="rnodes"><i class="rn" style="--i:0"></i><i class="rn" style="--i:1"></i><i class="rn" style="--i:2"></i><i class="rn" style="--i:3"></i></div>
+  <div class="rgrid">
+    <div class="rc card" style="--i:0"><div class="rv0">v1.6</div><time>02.11</time><h3>Плавные переходы</h3><ul>
+      <li>Настройка «плавный переход, кадров» (1..6)</li><li>Запись идёт к цели скользящими шагами</li><li>Оттенок по кратчайшей дуге через 359→0, точный снап у цели</li><li>Число команд не растёт, лимит ~17/с соблюдён</li></ul></div>
+    <div class="rc card" style="--i:1"><div class="rv0">v1.7</div><time>02–07.11</time><h3>Плавность по времени</h3><ul>
+      <li>HSV по времени: плавность 1–10, каждый шаг +0,25 с</li><li>Захват экрана в отдельном потоке</li><li>Непрерывное смешивание белого и цвета, оттенок только чётный</li><li>Тёмный интерфейс: карточки, крупный предпросмотр, кнопка ПУСК/СТОП, блок «Дополнительно»</li></ul></div>
+    <div class="rc card" style="--i:2"><div class="rv0">v1.8</div><time>07–08.11</time><h3>Диагностика обрывов</h3><ul>
+      <li>В логе настоящий тип ошибки и HRESULT</li><li>События статуса устройства и GATT</li><li>Снимок состояния связи при каждом LINK LOST</li><li>Исправлен двойной worker при быстром Стоп/Старт</li></ul></div>
+    <div class="rc card" style="--i:3"><div class="rv0">v1.9</div><time>08.11</time><h3>Тихий реконнект</h3><ul>
+      <li>Разбор 101 обрыва линка</li><li>Причину не нашли, поэтому обрывы сделаны незаметными</li><li>Окно с логом только если ленты нет больше 60 с</li><li>Коммит 889b533</li></ul></div>
+  </div>
+</section>
+
+<!-- 4c ============ SMOOTH TRANSITIONS DEMO ============ -->
+<section class="slide" id="s4c" data-tr="flip">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">00 · Плавные переходы</div>
+    <h2 class="rv" style="--i:1">Как лента научилась менять цвет <em>плавно</em></h2>
+  </div>
+  <div class="wheelbox rv" style="--i:2">
+    <div class="wring"></div>
+    <svg id="wsv" viewBox="0 0 620 620" aria-label="Цветовой круг: оттенок идёт от 340 к 20 градусам по кратчайшей дуге через ноль"></svg>
+    <div class="wc"><div class="wsw" id="wsw"></div><b>340° → 20°</b><span>по кратчайшей дуге через 359→0, а не через 180°</span></div>
+  </div>
+  <div class="sm card rv" style="--i:3">
+    <div class="smh">Как запись скользит к цели<span id="sni"></span></div>
+    <div id="smChart"></div>
+    <div class="led" id="smLed"></div>
+    <div class="smc"><label for="sn">плавный переход, кадров</label><input id="sn" type="range" min="1" max="6" value="4" style="--g1:#35e3ff;--g2:#ff4fd8"><output id="snv">4</output></div>
+  </div>
+  <p class="cap2 rv" style="--i:6">Демо считает шаги по формуле из отчёта: доля остатка 2/(N+1). Порог снапа в демо 2%, в приложении снап точный. Цвета квадратов только иллюстрация.</p>
+</section>
+
+<!-- 5 ============ BLE MAP ============ -->
+<section class="slide" id="s5" data-tr="flip">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">05 · Карта BLE-сервисов ленты</div>
+    <h2 class="rv" style="--i:1">Один канал на запись, один на <em>ответ</em></h2>
+  </div>
+  <svg id="map" class="rv" style="--i:2" viewBox="0 0 1700 360" fill="none" aria-label="Схема: ноутбук и лента связаны характеристиками FF01 и FF02">
+    <defs>
+      <marker id="arC" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto"><path d="M1 1 L11 6 L1 11z" fill="#35e3ff"/></marker>
+      <marker id="arM" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="12" markerHeight="12" orient="auto"><path d="M1 1 L11 6 L1 11z" fill="#ff4fd8"/></marker>
+      <linearGradient id="gBox" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a2040"/><stop offset="1" stop-color="#0b0e1e"/></linearGradient>
+    </defs>
+    <rect x="1" y="21" width="440" height="300" rx="26" fill="url(#gBox)" stroke="rgba(150,170,255,.3)" stroke-width="2"/>
+    <rect x="1259" y="21" width="440" height="300" rx="26" fill="url(#gBox)" stroke="rgba(150,170,255,.3)" stroke-width="2"/>
+    <!-- laptop icon -->
+    <g transform="translate(50,74)" stroke="#35e3ff" stroke-width="3" stroke-linejoin="round"><rect x="14" y="0" width="108" height="70" rx="7"/><path d="M0 84h136l-12-14H12z"/></g>
+    <text x="210" y="112" font-family="Unbounded,sans-serif" font-weight="700" font-size="34" fill="#eef1ff">НОУТБУК</text>
+    <text x="210" y="148" font-family="JetBrains Mono,monospace" font-size="19" fill="#aab3d4">Windows · GATT</text>
+    <text x="50" y="224" font-family="JetBrains Mono,monospace" font-size="22" fill="#eef1ff">без pairing</text>
+    <text x="50" y="262" font-family="JetBrains Mono,monospace" font-size="19" fill="#7480a8">MaintainConnection = true</text>
+    <!-- controller icon -->
+    <g transform="translate(1308,76)" stroke="#ff4fd8" stroke-width="3" stroke-linejoin="round"><rect x="0" y="22" width="120" height="58" rx="9"/><path d="M96 22V0M84 10a16 16 0 0 1 24 0"/><circle cx="24" cy="51" r="6"/><path d="M48 51h48"/></g>
+    <text x="1470" y="112" font-family="Unbounded,sans-serif" font-weight="700" font-size="34" fill="#eef1ff">IOTBT701</text>
+    <text x="1470" y="148" font-family="JetBrains Mono,monospace" font-size="19" fill="#aab3d4">Zengge BLE</text>
+    <text x="1308" y="224" font-family="JetBrains Mono,monospace" font-size="22" fill="#eef1ff">MAC 08:65:F0:DE:37:01</text>
+    <text x="1308" y="262" font-family="JetBrains Mono,monospace" font-size="19" fill="#7480a8">сервис FFFF</text>
+    <!-- lanes -->
+    <path class="dash" d="M470 100H1226" stroke="#35e3ff" stroke-width="5" marker-end="url(#arC)"/>
+    <path class="dash rev" d="M1230 246H474" stroke="#ff4fd8" stroke-width="5" marker-end="url(#arM)"/>
+    <g font-family="JetBrains Mono,monospace">
+      <text x="850" y="62" text-anchor="middle" font-size="30" font-weight="600" fill="#35e3ff">FF01 · Write</text>
+      <text x="850" y="142" text-anchor="middle" font-size="20" fill="#aab3d4">Write Without Response · команды</text>
+      <text x="850" y="206" text-anchor="middle" font-size="30" font-weight="600" fill="#ff4fd8">FF02 · Notify</text>
+      <text x="850" y="286" text-anchor="middle" font-size="20" fill="#aab3d4">ответы · статус-кадр EA 81 …</text>
+    </g>
+    <circle r="7" fill="#fff"><animateMotion dur="1.6s" repeatCount="indefinite" path="M470 100H1226"/></circle>
+    <circle r="7" fill="#fff"><animateMotion dur="1.6s" begin="-.8s" repeatCount="indefinite" path="M470 100H1226"/></circle>
+    <circle r="7" fill="#fff"><animateMotion dur="2.4s" repeatCount="indefinite" path="M1230 246H474"/></circle>
+    <text x="850" y="352" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="18" fill="#7480a8">доп. сервис FE00: FF11 (запись) · FF22 (notify): второй канал того же протокола, нам не нужен</text>
+  </svg>
+  <div class="algo">
+    <div class="step card rv" style="--i:3"><div class="n">01 · НАЙТИ</div><b>FromBluetoothAddressAsync</b><span>0x0865F0DE3701, до 6 попыток × 5 с</span></div>
+    <div class="step card rv" style="--i:4"><div class="n">02 · УДЕРЖАТЬ</div><b>GattSession</b><span>MaintainConnection = true, ждём Connected, до 6 × 2 с</span></div>
+    <div class="step card rv" style="--i:5"><div class="n">03 · ОТКРЫТЬ</div><b>GetGattServicesAsync</b><span>сервис FFFF: FF01 пишем, FF02 слушаем</span></div>
+    <div class="step card rv" style="--i:6"><div class="n">04 · ПИСАТЬ</div><b>FF01 без ответа</b><span>каждая команда рендерится мгновенно</span></div>
+    <div class="step card rv" style="--i:7"><div class="n">05 · ВЕРНУТЬ</div><b>Обрыв → заново</b><span>полный цикл подключения каждые ~6 с, бесконечно</span></div>
+  </div>
+  <div class="note card rv" style="--i:8"><b>Почему без pairing:</b> Windows PairAsync для этой ленты всегда возвращает Failed. Лента сопряжения не требует: GATT-характеристики открыты, а сопряжение только ломает доступ.</div>
+</section>
+
+<!-- 6 ============ PROTOCOL FRAME ============ -->
+<section class="slide" id="s6" data-tr="cube">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">06 · Грамота протокола</div>
+    <h2 class="rv" style="--i:1">23 байта, которые рисуют <em>цвет</em></h2>
+  </div>
+  <div class="frame" id="frame"></div>
+  <div class="ctl card rv" style="--i:5">
+    <div class="row"><label for="rh">hue</label><input id="rh" type="range" min="0" max="358" step="2" value="28" style="--g1:#f33;--g2:#f33;background:linear-gradient(90deg,#f33,#ff3,#3f3,#3ff,#33f,#f3f,#f33)"><output id="oh">28°</output></div>
+    <div class="row"><label for="rs">sat %</label><input id="rs" type="range" min="0" max="100" value="100" style="--g1:#888;--g2:#f80"><output id="os">100</output></div>
+    <div class="row"><label for="rb">bri %</label><input id="rb" type="range" min="0" max="100" value="100" style="--g1:#111;--g2:#fb5"><output id="ob">100</output></div>
+  </div>
+  <div class="rv" id="sw" style="--i:6"></div>
+  <div class="info card rv" style="--i:7"><h4 id="ih">Наведите на байт</h4><p id="ip">Заголовок транспорта, команда цвета v3 и контрольная сумма. Двигайте ползунки: HH, SS, BB и CS пересчитываются по формуле из отчёта.</p></div>
+  <div class="calc rv" style="--i:8" id="calc"></div>
+  <p class="cap rv" style="--i:8">Демо считает кадр по формуле из отчёта. Hue всегда чётный: нечётные градусы прошивка искажает, ошибка в 1° не видна.</p>
+</section>
+
+<!-- 7 ============ COMMANDS ============ -->
+<section class="slide" id="s7" data-tr="zoom">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">07 · Что лента понимает</div>
+    <h2 class="rv" style="--i:1">Три семейства команд с одним <em>product_id</em></h2>
+  </div>
+  <div class="tbl card rv" style="--i:2" id="tbl"></div>
+  <div class="fams" id="fams">
+    <div class="fam card rv" style="--i:3"><h4>Telink</h4><dl><dt>ВКЛ/ВЫКЛ</dt><dd>0x71</dd><dt>Цвет</dt><dd>E2 0B hue lvl</dd><dt>Эффекты</dt><dd>E0 02</dd><dt>Пример</dt><dd>IOTBT812</dd></dl></div>
+    <div class="fam card rv" style="--i:4"><h4>Segment</h4><dl><dt>ВКЛ/ВЫКЛ</dt><dd>0x3B</dd><dt>Цвет</dt><dd>E1 03 …</dd><dt>Эффекты</dt><dd>E1 01</dd><dt>Пример</dt><dd>IOTBT6BA</dd></dl></div>
+    <div class="fam card mine rv" style="--i:5"><h4>v3 wrapper <i>НАША</i></h4><dl><dt>ВКЛ/ВЫКЛ</dt><dd>0x3B</dd><dt>Цвет</dt><dd>E0 01 00 A1 …</dd><dt>Эффекты</dt><dd>нет</dd><dt>Пример</dt><dd>ZJ-BBLA (PR #101)</dd></dl></div>
+  </div>
+  <p class="fnote rv" style="--i:6"><b>Почему «31 R G B» молчит:</b> product_id = 0x00 (IOTBT/Telink) у всех трёх семейств одинаковый, а команды разные. Старые шаблоны для нашей ленты чужой язык.</p>
+</section>
+
+<!-- 8 ============ RATE CHART ============ -->
+<section class="slide" id="s8" data-tr="rise">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">08 · Замеры скорости</div>
+    <h2 class="rv" style="--i:1">Фактический темп доставки по <em>интервалам</em></h2>
+  </div>
+  <div class="chart rv" style="--i:2" id="rateChart"></div>
+  <div class="side">
+    <div class="big card rv" style="--i:3">
+      <div class="bn grad"><span class="cnt" data-to="456">0</span><small style="font:700 40px var(--disp)">/с</small></div>
+      <p>Burst: 100 команд без пауз. Windows глотает их в очередь без потерь, но эфир берёт только около 17 в секунду. Это физический предел соединения.</p>
+    </div>
+    <div class="quote rv" style="--i:4">Выше 17 Гц нет смысла: не плавнее, а позже.</div>
+  </div>
+</section>
+
+<!-- 9 ============ SOAK ============ -->
+<section class="slide" id="s9" data-tr="flip">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">09 · Soak-испытания</div>
+    <h2 class="rv" style="--i:1">24 000 команд подряд, <em>ни одного сбоя</em></h2>
+  </div>
+  <div class="soaks">
+    <div class="soak card rv" style="--i:2">
+      <header>
+        <svg class="ring" viewBox="0 0 170 170"><circle class="t" cx="85" cy="85" r="73"/><circle class="p" cx="85" cy="85" r="73" pathLength="1" transform="rotate(-90 85 85)"/><text x="85" y="94" text-anchor="middle" font-family="JetBrains Mono,monospace" font-weight="600" font-size="26" fill="#eef1ff">100%</text></svg>
+        <div><h4>01.11 · СОК №1</h4><div class="sn"><span class="cnt" data-to="3600">0</span><small> / 3600</small></div></div>
+      </header>
+      <div class="stats"><div>сбоев<b class="ok">0</b></div><div>темп<b>16.9/с</b></div><div>длительность<b>213 с</b></div><div>макс. пауза<b>141 мс</b></div></div>
+      <div class="dots" id="dots1"></div>
+    </div>
+    <div class="soak card rv" style="--i:3">
+      <header>
+        <svg class="ring" viewBox="0 0 170 170"><circle class="t" cx="85" cy="85" r="73"/><circle class="p" cx="85" cy="85" r="73" pathLength="1" transform="rotate(-90 85 85)"/><text x="85" y="94" text-anchor="middle" font-family="JetBrains Mono,monospace" font-weight="600" font-size="26" fill="#eef1ff">100%</text></svg>
+        <div><h4>02.11 · СОК №2 · 50 МС</h4><div class="sn"><span class="cnt" data-to="24000">0</span><small> / 24000</small></div></div>
+      </header>
+      <div class="stats"><div>сбоев<b class="ok">0</b></div><div>темп<b>16.4/с</b></div><div>длительность<b>24.4 мин</b></div><div>макс. пауза<b>125 мс</b></div></div>
+      <div class="dots" id="dots2"></div>
+    </div>
+  </div>
+  <p class="dnote" style="position:absolute;left:146px;top:860px;font-size:18px">1 квадрат = 100 доставленных команд</p>
+  <div class="conc card rv" style="--i:6">Темп не «плывёт» ни на одном отрезке: <b>прошивка не деградирует от непрерывной 20 Гц нагрузки.</b> После каждого прогона контрольный query и восстановление оранжевого прошли успешно.</div>
+</section>
+
+<!-- 10 ============ BRIGHTNESS ============ -->
+<section class="slide" id="s10" data-tr="wipe">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">10 · Лестница яркости</div>
+    <h2 class="rv" style="--i:1">Байт bri это <em>процент</em>, а не 0–255</h2>
+    <p class="lede rv" style="--i:2">Значения выше 100 лента принимает, но искажает цвет. Это глюк прошивки, а не физика диодов. Потолок: 100.</p>
+  </div>
+  <div class="bandwrap rv" style="--i:3">
+    <div class="band" id="band">
+      <div style="--i:0;flex:101;background:var(--lime)">0–100 · честно</div>
+      <div style="--i:1;flex:50;background:var(--amber)">101–150</div>
+      <div style="--i:2;flex:50;background:#ff8a3d">151–200</div>
+      <div style="--i:3;flex:54;background:var(--red)">201–255</div>
+    </div>
+    <div class="scale" id="scale"></div>
+    <input id="bsl" type="range" min="0" max="255" value="100" aria-label="Отправленный байт яркости">
+  </div>
+  <div class="zones">
+    <div class="zone card rv" style="--i:4;--zc:var(--lime)" data-z="0"><b>0–100</b><span>Норма. Яркость в процентах, цвет честный.</span></div>
+    <div class="zone card rv" style="--i:5;--zc:var(--amber)" data-z="1"><b>101–150</b><span>Желтизна: заметный сдвиг цвета на 120–150.</span></div>
+    <div class="zone card rv" style="--i:6;--zc:#ff8a3d" data-z="2"><b>151–200</b><span>Жёлто-зелёная примесь в любом оттенке.</span></div>
+    <div class="zone card rv" style="--i:7;--zc:var(--red)" data-z="3"><b>201–255</b><span>Примесь и потемнение: 255 ещё и темнее.</span></div>
+  </div>
+  <div id="bread" class="rv" style="--i:8"></div>
+</section>
+
+<!-- 11 ============ EVOLUTION ============ -->
+<section class="slide" id="s11" data-tr="zoom">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">11 · Эволюция скорости</div>
+    <h2 class="rv" style="--i:1">Лимиты были <em>перестраховкой</em>, а не физикой</h2>
+  </div>
+  <div class="chart rv" style="--i:2" id="evoChart"></div>
+  <div class="myths">
+    <div class="myth card rv" style="--i:3"><div><span class="o">1–3 ком/с</span></div><div class="ar">→</div><div class="n">16.9/с<small>устойчиво</small></div></div>
+    <div class="myth card rv" style="--i:4"><div><span class="o">зажим ≥350 мс</span></div><div class="ar">→</div><div class="n">50 мс<small>20 Гц безопасны</small></div></div>
+    <div class="myth card rv" style="--i:5"><div><span class="o">яркость 0–255</span></div><div class="ar">→</div><div class="n">потолок 100<small>байт = процент</small></div></div>
+  </div>
+</section>
+
+<!-- 12 ============ HANG HUNT ============ -->
+<section class="slide" id="s12" data-scene="hunt" data-ox="530" data-oy="-165" data-cz="1.5" data-tr="cube">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">12 · Охота на зависание · 02.11</div>
+    <h2 class="rv" style="--i:1">Зависание ленты: четыре <em>гипотезы</em></h2>
+  </div>
+  <div class="sym card rv" style="--i:2"><b>Симптом.</b> При 50 мс через 15–30 минут лента перестаёт обновляться. GUI пытается переподключиться, но не может, в эфире ленты нет. Лечит только перезагрузка блоком питания. Свет не гаснет: лента держит последний цвет.</div>
+  <div id="huntcap" class="rv" style="--i:3">радио: жива</div>
+  <div class="hyp">
+    <div class="h card rv" style="--i:3"><span class="hn">1</span><b>Редкий дедлок BLE-стека ленты</b><p>Триггер не частота, а длительность или сочетание повторов кадра и EMA-переходов.</p><div class="chk"><i>ПРОВЕРКА</i>Прогон через реальный GUI 1–2 ч, лог v1.5</div></div>
+    <div class="h card rv" style="--i:4"><span class="hn">2</span><b>Zombie-link в стеке Windows</b><p>«В эфире нет» мог видеть только ноутбук, а лента могла быть жива.</p><div class="chk"><i>ПРОВЕРКА</i>В момент зависания открыть Surplife: видит — проблема PC, нет — прошивка</div></div>
+    <div class="h card rv" style="--i:5"><span class="hn">3</span><b>Питание или перегрев</b><p>Согласуется с тем, что помогает только сброс питания.</p><div class="chk"><i>ПРОВЕРКА</i>Перезагрузить и наблюдать, когда зависание вернётся</div></div>
+    <div class="h card rv" style="--i:6"><span class="hn">4</span><b>Динамический режим пульта</b><p>Радуга и chase перебивают статичный цвет своим алгоритмом.</p><div class="chk"><i>ПРОВЕРКА</i>Перевести ленту пультом в статичный режим</div></div>
+  </div>
+  <div class="notc card rv" style="--i:7"><b>Не виновник: темп записей.</b> lednotify soak 50 мс × 24.4 мин, 24 000 команд тем же темпом, что у GUI: 0 сбоев, линк жив, query после прогона в норме.</div>
+</section>
+
+
+<!-- 12b ============ 101 DROPS ============ -->
+<section class="slide" id="s12b" data-tr="zoom">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">00 · Обрывы линка · 08.11</div>
+    <h2 class="rv" style="--i:1">101 обрыв: что показал <em>лог</em></h2>
+  </div>
+  <div class="dl">
+    <div class="dbig card rv" style="--i:2"><div class="bn grad"><span class="cnt" data-to="101">0</span></div><p>обрыв линка с 02.11 по ambilight_log.txt. Лента на секунду пропадает и сама возвращается.</p></div>
+    <div class="df card rv" style="--i:3"><b>Обрывает не программа.</b> Записи шли нормально, затем Windows сама присылает ConnectionStatus → Disconnected.</div>
+    <div class="df card rv" style="--i:4"><b>Автореконнект работает.</b> Линк возвращается за 1–6 с.</div>
+  </div>
+  <div class="dc card rv" style="--i:3"><div class="dct">Сколько жил линк, логарифмическая шкала</div><div id="dropChart"></div></div>
+  <div class="dx card rv" style="--i:5"><h4 class="ok">Исключено</h4><ul><li>Wi-Fi 5 ГГц (канал 149) помехой не считается</li><li>Наушники были выключены, A2DP не причина</li></ul></div>
+  <div class="dy card rv" style="--i:6"><h4 class="warn">Под подозрением</h4><ul><li>Подвисший BT-стек Windows после сна</li><li>Питание или перезагрузка контроллера ленты</li><li>Радиопомехи</li><li>Экономия питания адаптера: Realtek 8852BE, Wi-Fi и BT на одном чипе, «разрешить отключение для экономии энергии» включено</li></ul></div>
+</section>
+
+<!-- 12c ============ v1.9 SOLUTION ============ -->
+<section class="slide" id="s12c" data-tr="cube">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">00 · Решение v1.9</div>
+    <h2 class="rv" style="--i:1">Обрывы не чиним, а делаем <em>незаметными</em></h2>
+  </div>
+  <div class="ba card rv" style="--i:2">
+    <svg viewBox="0 0 900 470" width="900" height="470" aria-label="Схема: раньше окно на каждый обрыв, теперь тихий реконнект и окно только при потере дольше 60 секунд">
+      <g font-family="JetBrains Mono,monospace">
+        <text x="0" y="28" font-size="22" font-weight="600" fill="#ff5d73">БЫЛО · окно LINK LOST на каждый обрыв</text>
+        <text x="0" y="262" font-size="22" font-weight="600" fill="#58f2a4">СТАЛО · тихий реконнект</text>
+      </g>
+      <!-- was -->
+      <g stroke-width="6" stroke-linecap="round" fill="none">
+        <path d="M0 140H150M200 140H380M430 140H600M650 140H760M810 140H900" stroke="#35e3ff"/>
+        <path class="gp" style="--d:0" d="M150 140H200" stroke="#ff5d73" stroke-dasharray="6 8"/>
+        <path class="gp" style="--d:1" d="M380 140H430" stroke="#ff5d73" stroke-dasharray="6 8"/>
+        <path class="gp" style="--d:2" d="M600 140H650" stroke="#ff5d73" stroke-dasharray="6 8"/>
+        <path class="gp" style="--d:3" d="M760 140H810" stroke="#ff5d73" stroke-dasharray="6 8"/>
+      </g>
+      <g font-family="JetBrains Mono,monospace" font-size="15" font-weight="600" text-anchor="middle">
+        <g class="pop" style="--d:0"><rect x="105" y="62" width="140" height="42" rx="10" fill="#2a0f1a" stroke="#ff5d73" stroke-width="2"/><text x="175" y="89" fill="#ff5d73">LINK LOST</text></g>
+        <g class="pop" style="--d:1"><rect x="335" y="62" width="140" height="42" rx="10" fill="#2a0f1a" stroke="#ff5d73" stroke-width="2"/><text x="405" y="89" fill="#ff5d73">LINK LOST</text></g>
+        <g class="pop" style="--d:2"><rect x="555" y="62" width="140" height="42" rx="10" fill="#2a0f1a" stroke="#ff5d73" stroke-width="2"/><text x="625" y="89" fill="#ff5d73">LINK LOST</text></g>
+        <g class="pop" style="--d:3"><rect x="715" y="62" width="140" height="42" rx="10" fill="#2a0f1a" stroke="#ff5d73" stroke-width="2"/><text x="785" y="89" fill="#ff5d73">LINK LOST</text></g>
+      </g>
+      <text x="0" y="200" font-family="Manrope,sans-serif" font-size="20" fill="#aab3d4">Лента на секунду пропадает, окно выскакивает каждый раз.</text>
+      <!-- now -->
+      <g stroke-width="6" stroke-linecap="round" fill="none">
+        <path d="M0 370H150M200 370H380M430 370H600M650 370H690M880 370H900" stroke="#35e3ff"/>
+        <path class="gp" style="--d:4" d="M150 370H200" stroke="#58f2a4" stroke-dasharray="6 8"/>
+        <path class="gp" style="--d:5" d="M380 370H430" stroke="#58f2a4" stroke-dasharray="6 8"/>
+        <path class="gp" style="--d:6" d="M600 370H650" stroke="#58f2a4" stroke-dasharray="6 8"/>
+        <path class="gp" style="--d:7" d="M690 370H880" stroke="#ff5d73" stroke-dasharray="6 8"/>
+      </g>
+      <g font-family="JetBrains Mono,monospace" font-size="15" font-weight="600" text-anchor="middle">
+        <g class="pop" style="--d:4"><text x="175" y="344" fill="#58f2a4">тихо</text></g>
+        <g class="pop" style="--d:5"><text x="405" y="344" fill="#58f2a4">тихо</text></g>
+        <g class="pop" style="--d:6"><text x="625" y="344" fill="#58f2a4">тихо</text></g>
+        <g class="pop" style="--d:8"><rect x="655" y="286" width="250" height="42" rx="10" fill="#2a0f1a" stroke="#ff5d73" stroke-width="2"/><text x="780" y="313" fill="#ff5d73">окно: ленты нет &gt;60 с</text></g>
+      </g>
+      <text x="0" y="426" font-family="Manrope,sans-serif" font-size="20" fill="#aab3d4">В лог: «reconnecting silently» и «link recovered after X s». Схема, не измерения.</text>
+      <text x="0" y="454" font-family="JetBrains Mono,monospace" font-size="17" fill="#7480a8">LostPopupAfterSec = 60 · файл ambilight_gui.cs</text>
+    </svg>
+  </div>
+  <div class="ck">
+    <div class="ckh rv" style="--i:3">Как отличить причину</div>
+    <div class="ci card rv" style="--i:4"><span>1</span><div><b>Surplife на телефоне во время обрывов</b>Стабильно: виноват ПК или адаптер. Тоже рвётся: виновата лента или её питание.</div></div>
+    <div class="ci card rv" style="--i:5"><span>2</span><div><b>Перезапуск BT-адаптера или перезагрузка</b>Линк снова живёт десятки минут: виноват стек после сна.</div></div>
+    <div class="ci card rv" style="--i:6"><span>3</span><div><b>Снять галочку экономии питания</b>У Realtek Bluetooth Adapter: «разрешить отключение для экономии энергии».</div></div>
+  </div>
+  <div class="bn2 card rv" style="--i:7"><b>Релиз v1.9, коммит 889b533.</b> Резервная копия прежнего exe: AmbilightOT_v1.8_backup.exe. В эфире «NOT SEEN» при активном линке это норма: BLE в соединении не рекламируется.</div>
+</section>
+
+<!-- 13 ============ TOOLS + REPO ============ -->
+<section class="slide" id="s13" data-tr="rise">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">13 · Инструменты и репозиторий</div>
+    <h2 class="rv" style="--i:1">Один GUI и <em>четыре</em> консольных помощника</h2>
+  </div>
+  <div class="tools">
+    <div class="tool card wide rv" style="--i:2"><code>AmbilightOT.exe</code><p>Главный продукт. Интервал 50 мс…3 с, усиления sat/bri, мин. яркость, порог белого, тёплая поправка, плавность по времени, тёмный интерфейс с кнопкой ПУСК/СТОП, 5 языков, автосохранение, автозагрузка, лог, тихий реконнект.</p></div>
+    <div class="tool card rv" style="--i:3"><code>ledctl.exe</code><p>Консоль: white / on / off / rgb / hsv / sweep2.</p></div>
+    <div class="tool card rv" style="--i:4"><code>lednotify.exe</code><p>Обратная связь и эксперименты: query / listen / ladder / rate / soak / send.</p></div>
+    <div class="tool card rv" style="--i:5"><code>blescan.exe</code><p>BLE-скан 25 с: жива ли лента в эфире, когда никто не держит линк.</p></div>
+    <div class="tool card rv" style="--i:6"><code>build_*.ps1</code><p>Сборка через csc.exe, GAC-фасады и WinMD, вообще без Visual Studio.</p></div>
+  </div>
+  <div class="repo rv" style="--i:7"><span class="pill">README ×5</span><span class="pill">docs/PROTOCOL.md §1–§4</span><span class="pill">docs/AMBILIGHT.md</span><span class="pill">docs/BUILDING.md</span><span class="pill">src/*.cs</span><span class="pill">LICENSE MIT</span><span class="pill">Releases v1.1–v1.9</span></div>
+  <div class="rel">
+    <div class="rl rv" style="--i:3"><h4>v1.1<span>Тёплая поправка белого</span></h4><code>AmbilightOT.exe</code></div>
+    <div class="rl rv" style="--i:4"><h4>v1.2<span>Автосохранение и кривая насыщенности</span></h4><code>AmbilightOT.exe</code></div>
+    <div class="rl rv" style="--i:5"><h4>v1.3<span>Обратная связь FF02 и яркость 0..100</span></h4><code>lednotify.exe, ledctl.exe</code></div>
+    <div class="rl rv" style="--i:6"><h4>v1.4<span>Быстрый режим: 20 Гц верифицировано</span></h4><code>AmbilightOT.exe, lednotify.exe</code></div>
+    <div class="rl rv" style="--i:7"><h4>v1.5<span>Автозагрузка, лог-файл, окно «LINK LOST»</span></h4><code>AmbilightOT.exe, lednotify.exe + отчёты PDF ×5</code></div>
+    <div class="rl rv" style="--i:8"><h4>v1.6<span>Плавные переходы цвета (кадры 1..6)</span></h4><code>AmbilightOT.exe · коммиты cef1591, ca5b672</code></div>
+    <div class="rl rv" style="--i:9"><h4>v1.7<span>Плавность по времени, захват в потоке, тёмный GUI</span></h4><code>AmbilightOT.exe</code></div>
+    <div class="rl rv" style="--i:10"><h4>v1.8<span>Диагностика обрывов: тип ошибки и HRESULT в логе</span></h4><code>AmbilightOT.exe</code></div>
+    <div class="rl next rv" style="--i:11"><h4>v1.9<span>Тихий реконнект, окно лога только при потере &gt;60 с</span><i>ВЫПУЩЕН</i></h4><code>AmbilightOT.exe · коммит 889b533</code></div>
+  </div>
+</section>
+
+<!-- 14 ============ BACKLOG + CONCLUSIONS ============ -->
+<section class="slide" id="s14" data-scene="ribbon" data-ox="0" data-oy="-470" data-cz="1.5" data-op=".4" data-tr="zoom">
+  <div class="pad">
+    <div class="eyebrow rv" style="--i:0">14 · Бэклог и выводы</div>
+    <h2 class="rv" style="--i:1">Правило «проверяй <em>честно</em>» сработало</h2>
+  </div>
+  <div class="board">
+    <div class="col card done rv" style="--i:2"><h4 class="ok">Готово <span>6</span></h4><ul>
+      <li>Чтение состояния (FF02)<small>v1.3 · query, расшифровка, lednotify</small></li>
+      <li>Шкала яркости 0..100<small>v1.3 · потолок подтверждён</small></li>
+      <li>Скорость 20 Гц<small>v1.4 · soak 24.4 мин чисто</small></li>
+      <li>Автозагрузка с Windows<small>v1.5 · галочка и ярлык в shell:startup</small></li>
+      <li>Логирование сбоев<small>v1.5 · файл, кнопка, окно «LINK LOST»</small></li>
+      <li>Интерполяция переходов<small>v1.6/v1.7 · по кадрам, затем по времени в HSV</small></li></ul></div>
+    <div class="col card wip rv" style="--i:3"><h4 class="warn">Частично <span>1</span></h4><ul>
+      <li>Разбор зависания и обрывов<small>обрывы замаскированы (v1.9), причина не найдена</small></li></ul></div>
+    <div class="col card next rv" style="--i:4"><h4 style="color:var(--cyan)">Дальше <span>6</span></h4><ul>
+      <li>Подхват цвета после реконнекта<small>сейчас 1–6 с лента держит старый цвет</small></li>
+      <li>Свежие GATT-объекты после реконнекта<small>была запись в закрытую характеристику</small></li>
+      <li>Ошибка захвата «Неверный дескриптор»<small>не разбиралась, с BLE не связана</small></li>
+      <li>Выбор монитора из списка<small>вместо «основной / все»</small></li>
+      <li>Гамма яркости<small>богаче полутени в тёмных сценах</small></li>
+      <li>hue 1° вместо 2°<small>исследование, сначала тесты</small></li></ul></div>
+  </div>
+  <div class="end">
+    <ol>
+      <li class="card rv" style="--i:3"><b>Протокол вскрыт исчерпывающе:</b> от transport-обёртки до query-канала и статус-кадра FF02. Всё в PROTOCOL.md.</li>
+      <li class="card rv" style="--i:4"><b>Ambilight продукт, не скрипт:</b> 5 языков, автосохранение, старт с Windows, самовскрывающийся лог.</li>
+      <li class="card rv" style="--i:5"><b>Три страха развеяны замерами:</b> 16.9/с устойчиво, потолок 100, зажим 350 мс не нужен.</li>
+      <li class="card rv" style="--i:6"><b>Открыто одно:</b> зависание и обрывы линка (101 с 02.11). Синтетика их не воспроизводит, причина не найдена, в v1.9 обрывы сделаны незаметными.</li>
+    </ol>
+  </div>
+</section>
+
+</div><!-- /stage -->
+<div id="hud">
+  <button id="bp" aria-label="Назад">←</button>
+  <span id="ctr">01 / 14</span>
+  <button id="bn" aria-label="Вперёд">→</button>
+  <button id="bf" aria-label="Во весь экран">⛶</button>
+</div>
+<div id="prog"><i></i></div>
+</div><!-- /viewport -->
+
+<script>
+(()=>{
+'use strict';
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const stage=$('#stage'), slides=$$('.slide'), N=slides.length, tip=$('#tip');
+let K=1, cur=-1, running=[];
+const svgNS='http://www.w3.org/2000/svg';
+const pad2=n=>String(n).padStart(2,'0');
+const hex2=n=>pad2(n.toString(16).toUpperCase()).slice(-2).toUpperCase();
+
+/* ---------- tooltip ---------- */
+function tipOn(el,html){
+  const mv=e=>{const r=stage.getBoundingClientRect();let x=(e.clientX-r.left)/K+20,y=(e.clientY-r.top)/K-70;if(x>1420)x-=420;tip.style.left=x+'px';tip.style.top=y+'px'};
+  el.addEventListener('pointerenter',e=>{tip.innerHTML=html;tip.classList.add('on');mv(e)});
+  el.addEventListener('pointermove',mv);
+  el.addEventListener('pointerleave',()=>tip.classList.remove('on'));
+}
+
+/* ---------- counters ---------- */
+function fmtNum(v,dec){return dec?v.toFixed(dec):Math.round(v).toLocaleString('ru-RU')}
+function runCounters(sl){
+  $$('.cnt',sl).forEach((el,i)=>{
+    const to=+el.dataset.to,dec=+(el.dataset.dec||0);
+    if(el._raf)cancelAnimationFrame(el._raf);
+    if(reduce){el.textContent=fmtNum(to,dec);return}
+    const t0=performance.now()+450+i*130,dur=1600;
+    const f=now=>{const p=Math.min(1,Math.max(0,(now-t0)/dur)),e=1-Math.pow(1-p,3);
+      el.textContent=fmtNum(to*e,dec);
+      if(p<1)el._raf=requestAnimationFrame(f);else el.textContent=fmtNum(to,dec)};
+    f(performance.now());
+  });
+}
+
+/* ================= CONTENT BUILDERS ================= */
+/* --- timeline --- */
+(()=>{
+  const EV=[
+    ['29–30.10','Протокол вскрывается','BLE-скан без сопряжения, GATT напрямую. Расшифрована transport-обёртка, ВКЛ/ВЫКЛ подтверждены эталонами lednetwf_ble.'],
+    ['30.10','Цвет','Старые RGB-шаблоны лента глушит, нужен v3-формат E0 01 00 A1. Нечётные градусы искажаются, hue квантуется к чётным.'],
+    ['30.10','Ambilight v1.0','AmbilightOT.exe: скриншот, взвешенное среднее, EMA-сглаживание, тёмные сцены в белый, авто-реконнект.'],
+    ['31.10','Публикация','GitHub: протокольные доки, README ×5, языки GUI. v1.1 тёплый белый, v1.2 автосохранение и кривая насыщенности.'],
+    ['01.11','v1.3 · обратная связь','Лента впервые ответила: query-канал и статус-кадр EA 81 в FF02. Байт яркости оказался процентом 0..100.'],
+    ['01.11','v1.4 · 20 Гц','Снят зажим ≥350 мс: устойчивые 16.9 команд/с, burst 456/с без потерь, soak 3600/3600 за 213 с.'],
+    ['02.11','v1.5 · охота на баг','Автозагрузка, лог с точностью до мс, окно «LINK LOST». Пользователь сообщает о зависании ленты через 15–30 мин.']
+  ];
+  const tl=$('#tl');
+  EV.forEach((e,i)=>{
+    const x=200+i*216.67, up=i%2===0;
+    const n=document.createElement('div');n.className='tn';n.style.cssText=`left:${x}px;--i:${i}`;tl.appendChild(n);
+    const c=document.createElement('div');c.className='tc card '+(up?'up':'dn');c.style.cssText=`left:${x-200}px;--i:${i}`;
+    c.innerHTML=`<time>${e[0]}</time><h3>${e[1]}</h3><p>${e[2]}</p>`;tl.appendChild(c);
+  });
+})();
+
+/* --- protocol frame + calculator --- */
+const Frame=(()=>{
+  const G=[
+    {n:'флаги',b:['00'],c:'#8f9ae0',h:'Флаги транспорта',d:'Первый байт транспортной обёртки: 00.'},
+    {n:'cnt',b:['XX'],c:'#c9a2ff',h:'Счётчик пакетов',d:'Увеличивается на каждой отправке. Повторный счётчик может быть отброшен.'},
+    {n:'last',b:['80'],c:'#8f9ae0',h:'«Последний» фрагмент',d:'Признак последнего фрагмента: 80.'},
+    {n:'фрагм.',b:['00','00'],c:'#8f9ae0',h:'Фрагменты',d:'Служебные байты фрагментации: 00 00.'},
+    {n:'len−1',b:['0F'],c:'#8f9ae0',h:'Длина минус 1',d:'0F для команды цвета.'},
+    {n:'len',b:['10'],c:'#8f9ae0',h:'Длина блока',d:'10 (16 байт) для команды цвета.'},
+    {n:'канал',b:['0B'],c:'#ff9bd6',h:'Командный канал',d:'С этого байта начинается контрольная сумма: сумма всех байтов payload от 0B включительно.'},
+    {n:'семейство v3',b:['E0','01','00','A1'],c:'#35e3ff',h:'Семейство IOTBT (v3)',d:'Префикс v3-формата. Старые шаблоны 31/41/42/46 лента игнорирует.'},
+    {n:'HH',b:['HH'],c:'#ffb23e',h:'HH: оттенок',d:'HH = hue / 2. Нечётные градусы прошивка искажает, поэтому hue всегда чётный.'},
+    {n:'SS',b:['SS'],c:'#58f2a4',h:'SS: насыщенность',d:'Проценты 0..100.'},
+    {n:'BB',b:['BB'],c:'#7fb2ff',h:'BB: яркость',d:'Проценты 0..100. Значения выше 100 ломают цвет.'},
+    {n:'хвост',b:['00','00','00','00','14','00','00'],c:'#6f7aa8',h:'Хвост команды',d:'Постоянные байты команды цвета: 00 00 00 00 14 00 00.'},
+    {n:'CS',b:['CS'],c:'#ff4fd8',h:'Контрольная сумма',d:'CS = sum(payload) & 0xFF, считая от 0B включительно.'}
+  ];
+  const fr=$('#frame'), cells={};let k=0;
+  G.forEach((g,gi)=>{
+    const el=document.createElement('div');el.className='grp';el.style.setProperty('--c',g.c);
+    el.innerHTML=`<div class="bytes">${g.b.map(()=>`<div class="byte" style="--k:${k++}"></div>`).join('')}</div><div class="br"></div><div class="gl">${g.n}</div>`;
+    fr.appendChild(el);
+    cells[g.n]=$$('.byte',el);
+    el.addEventListener('pointerenter',()=>{$('#ih').textContent=g.h;$('#ip').textContent=g.d;$$('.grp').forEach(x=>x.classList.remove('hi'))});
+    el.addEventListener('pointerleave',()=>{$('#ih').textContent='Наведите на байт';$('#ip').textContent=DEF});
+    g.cells=cells[g.n];
+  });
+  const DEF=$('#ip').textContent;
+  let cnt=0x2A;
+  const rh=$('#rh'),rs=$('#rs'),rb=$('#rb');
+  function hsv2rgb(h,s,v){s/=100;v/=100;const c=v*s,x=c*(1-Math.abs((h/60)%2-1)),m=v-c;let r,g,b;
+    if(h<60)[r,g,b]=[c,x,0];else if(h<120)[r,g,b]=[x,c,0];else if(h<180)[r,g,b]=[0,c,x];else if(h<240)[r,g,b]=[0,x,c];else if(h<300)[r,g,b]=[x,0,c];else[r,g,b]=[c,0,x];
+    return[r+m,g+m,b+m].map(t=>Math.round(t*255))}
+  function upd(){
+    const h=(+rh.value)&~1, s=+rs.value, b=+rb.value;
+    cnt=(cnt+1)&0xFF;
+    const HH=h/2, sum=0x0B+0xE0+0x01+0x00+0xA1+HH+s+b+0x14, CS=sum&0xFF;
+    const set=(n,arr)=>G.find(g=>g.n===n).cells.forEach((c,i)=>c.textContent=arr[i]);
+    set('cnt',[hex2(cnt)]);set('HH',[hex2(HH)]);set('SS',[hex2(s)]);set('BB',[hex2(b)]);set('CS',[hex2(CS)]);
+    ['флаги','last','фрагм.','len−1','len','канал','семейство v3','хвост'].forEach(n=>{const g=G.find(g=>g.n===n);g.cells.forEach((c,i)=>c.textContent=g.b[i])});
+    $('#oh').textContent=h+'°';$('#os').textContent=s;$('#ob').textContent=b;
+    const [r,gg,bb]=hsv2rgb(h,s,b);const sw=$('#sw');sw.style.background=`rgb(${r},${gg},${bb})`;sw.style.setProperty('--swc',`rgb(${r},${gg},${bb})`);
+    $('#calc').innerHTML=`Σ = 0x0B + 0xE0 + 0x01 + 0x00 + 0xA1 + <b>0x${hex2(HH)}</b> + <b>0x${hex2(s)}</b> + <b>0x${hex2(b)}</b> + 0x14 = 0x${sum.toString(16).toUpperCase()}<br>CS = Σ &amp; 0xFF = <b>0x${hex2(CS)}</b>`;
+  }
+  let raf=0,user=false;
+  const stop=()=>{user=true;cancelAnimationFrame(raf)};
+  [rh,rs,rb].forEach(r=>{r.addEventListener('input',()=>{stop();upd()});r.addEventListener('pointerdown',stop)});
+  function start(){
+    user=false;cancelAnimationFrame(raf);rh.value=28;rs.value=100;rb.value=100;upd();
+    if(reduce)return;let last=0;
+    const f=t=>{if(user)return;if(t-last>55){last=t;rh.value=(+rh.value+2)%360;upd()}raf=requestAnimationFrame(f)};
+    setTimeout(()=>{if(!user)raf=requestAnimationFrame(f)},2600);
+  }
+  upd();
+  return{start,stop:()=>cancelAnimationFrame(raf)};
+})();
+
+/* --- command table --- */
+(()=>{
+  const R=[
+    ['ВКЛ / ВЫКЛ','3B 23/24 00…32 00 00','✓ проверено','ok'],
+    ['Цвет (v3)','E0 01 00 A1 HH SS BB …','✓ 12 оттенков','ok'],
+    ['Белый','3B A1 00 00 64 … (sat=0)','✓ работает','ok'],
+    ['RGB-шаблоны 31/41/42/46','31 R G B …','✗ игнорирует','bad'],
+    ['Нечётный градус','byte_lo = sat + 128','✗ → чётный','bad'],
+    ['bri > 100','процентная шкала','✗ потолок 100','bad'],
+    ['Query состояния','0B 81 8A 8B 96 (без checksum)','✓ v1.3','ok'],
+    ['Статус-ответ (FF02)','EA 81 01 00 AD 0A 23 25 6E 37 F0 hue…','✓ расшифрован','ok']
+  ];
+  $('#tbl').innerHTML=R.map(r=>`<div class="tr"><div class="a">${r[0]}</div><div class="b">${r[1]}</div><div class="s ${r[3]}">${r[2]}</div></div>`).join('');
+  $$('#fams .fam, .rc').forEach(f=>{
+    f.addEventListener('pointermove',e=>{const b=f.getBoundingClientRect(),x=(e.clientX-b.left)/b.width-.5,y=(e.clientY-b.top)/b.height-.5;
+      f.style.transform=`rotateY(${x*14}deg) rotateX(${-y*14}deg) translateZ(14px)`});
+    f.addEventListener('pointerleave',()=>{f.style.transform=''});
+  });
+})();
+
+/* --- rate chart (4.1) --- */
+(()=>{
+  const W=1060,H=660,m={l:92,r:20,t:56,b:120},iw=W-m.l-m.r,ih=H-m.t-m.b;
+  const data=[['350 мс',3.0],['200 мс',4.9],['100 мс',9.4],['50 мс',16.8]];
+  const y=v=>m.t+ih-(v/20)*ih, step=iw/4, bw=140;
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Темп доставки: 3.0, 4.9, 9.4 и 16.8 команд в секунду при интервалах 350, 200, 100 и 50 мс">
+  <defs><linearGradient id="gBar" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#1b8fb0"/><stop offset="1" stop-color="#35e3ff"/></linearGradient>
+  <linearGradient id="gBar2" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#35e3ff"/><stop offset="1" stop-color="#ff4fd8"/></linearGradient></defs>`;
+  [0,5,10,15,20].forEach(v=>{s+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(150,170,255,${v?0.13:0.4})"/><text x="${m.l-16}" y="${y(v)+7}" text-anchor="end" font-size="20">${v}</text>`});
+  s+=`<text x="${m.l}" y="26" font-size="19" fill="#7480a8" style="fill:#7480a8">команд/с, фактическая доставка</text>`;
+  data.forEach((d,i)=>{
+    const x=m.l+step*i+(step-bw)/2,top=y(d[1]),h=y(0)-top,r=8;
+    const last=i===3;
+    s+=`<g class="bar" style="--i:${i}"><path d="M${x} ${y(0)}V${top+r}Q${x} ${top} ${x+r} ${top}H${x+bw-r}Q${x+bw} ${top} ${x+bw} ${top+r}V${y(0)}Z" fill="url(#${last?'gBar2':'gBar'})"/>
+    <text class="v cnt" data-to="${d[1]}" data-dec="1" x="${x+bw/2}" y="${top-16}" text-anchor="middle" font-size="30" font-weight="600" style="fill:#eef1ff">0</text>
+    <text x="${x+bw/2}" y="${y(0)+42}" text-anchor="middle" font-size="24" style="fill:#eef1ff">${d[0]}</text>
+    <rect class="hit" x="${x-20}" y="${m.t}" width="${bw+40}" height="${ih}" data-i="${i}"/></g>`;
+  });
+  s+=`<text x="${m.l+iw/2}" y="${H-24}" text-anchor="middle" font-size="19" style="fill:#7480a8">интервал между командами</text>`;
+  s+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(17)}" y2="${y(17)}" stroke="#ffb23e" stroke-width="2.5" stroke-dasharray="10 8"/>
+  <text x="${m.l+14}" y="${y(17)-14}" font-size="21" style="fill:#ffb23e">эфир берёт ≈ 17/с, предел соединения</text></svg>`;
+  const box=$('#rateChart');box.innerHTML=s;
+  $$('.hit',box).forEach(h=>{const d=data[+h.dataset.i];tipOn(h,`Интервал ${d[0]}<br><b style="color:#35e3ff">${d[1].toFixed(1)} команд/с</b> фактически`)});
+})();
+
+/* --- evolution chart (4.4) --- */
+(()=>{
+  const W=1000,H=660,m={l:92,r:50,t:70,b:130},iw=W-m.l-m.r,ih=H-m.t-m.b;
+  const P=[['v1.0','зажим 900 мс',1.1,'~1.1/с'],['v1.4','зажим 350 мс',5,'~5/с'],['v1.4+','интервал 50 мс',16.9,'16.9/с']];
+  const X=[.12,.5,.88].map(f=>m.l+iw*f), y=v=>m.t+ih-(v/20)*ih;
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Эффективная частота обновления: около 1.1, около 5 и 16.9 в секунду">
+  <defs><linearGradient id="gEvo" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#35e3ff"/><stop offset=".6" stop-color="#ff4fd8"/><stop offset="1" stop-color="#ffb23e"/></linearGradient>
+  <linearGradient id="gArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff4fd8" stop-opacity=".32"/><stop offset="1" stop-color="#ff4fd8" stop-opacity="0"/></linearGradient></defs>`;
+  [0,5,10,15,20].forEach(v=>{s+=`<line x1="${m.l}" x2="${W-m.r}" y1="${y(v)}" y2="${y(v)}" stroke="rgba(150,170,255,${v?0.13:0.4})"/><text x="${m.l-16}" y="${y(v)+7}" text-anchor="end" font-size="20">${v}</text>`});
+  s+=`<text x="${m.l}" y="30" font-size="19" style="fill:#7480a8">эффективная частота обновления, раз/с</text>`;
+  const pts=P.map((p,i)=>[X[i],y(p[2])]);
+  s+=`<path class="area-p" d="M${pts[0][0]} ${y(0)}L${pts.map(p=>p.join(' ')).join('L')}L${pts[2][0]} ${y(0)}Z" fill="url(#gArea)"/>`;
+  s+=`<path class="line-p" pathLength="1" d="M${pts.map(p=>p.join(' ')).join('L')}"/>`;
+  P.forEach((p,i)=>{
+    s+=`<g><circle class="mk" style="--i:${i}" cx="${pts[i][0]}" cy="${pts[i][1]}" r="11" fill="#05060c" stroke="${['#35e3ff','#c26bff','#ffb23e'][i]}" stroke-width="5"/>
+    <text class="mv" style="--i:${i};fill:#eef1ff" x="${pts[i][0]-(i===1?20:0)}" y="${pts[i][1]-(i===1?16:26)}" text-anchor="${i===1?'end':'middle'}" font-size="32" font-weight="600">${p[3]}</text>
+    <text x="${pts[i][0]}" y="${y(0)+40}" text-anchor="middle" font-size="24" style="fill:#eef1ff">${p[0]}</text>
+    <text x="${pts[i][0]}" y="${y(0)+70}" text-anchor="middle" font-size="19" style="fill:#7480a8">${p[1]}</text>
+    <circle class="hit" cx="${pts[i][0]}" cy="${pts[i][1]}" r="42" data-i="${i}"/></g>`;
+  });
+  s+='</svg>';
+  const box=$('#evoChart');box.innerHTML=s;
+  $$('.hit',box).forEach(h=>{const p=P[+h.dataset.i];tipOn(h,`${p[0]} · ${p[1]}<br><b style="color:#ffb23e">${p[3]}</b>`)});
+})();
+
+/* --- soak dots --- */
+(()=>{
+  const mk=(id,n)=>{const c=$(id);c.innerHTML=Array.from({length:n},(_,i)=>`<i style="--d:${i}"></i>`).join('');
+    const p=document.createElement('p');p.className='dnote';p.textContent='1 квадрат = 100 команд';c.after(p)};
+  mk('#dots1',36);mk('#dots2',240);
+  const d=$('#s9 > p.dnote');if(d)d.remove();
+})();
+
+/* --- brightness band --- */
+const Bri=(()=>{
+  const sl=$('#bsl'),bread=$('#bread'),zs=$$('.zone');
+  const sc=$('#scale');[0,50,100,150,200,255].forEach(v=>{const sp=document.createElement('span');sp.style.left=(v/255*100)+'%';sp.textContent=v;sc.appendChild(sp)});
+  const Z=[['честный цвет','#58f2a4'],['желтизна','#ffb23e'],['жёлто-зелёная примесь','#ff8a3d'],['примесь и потемнение','#ff5d73']];
+  function upd(){const v=+sl.value,z=v<=100?0:v<=150?1:v<=200?2:3;
+    zs.forEach((e,i)=>e.classList.toggle('on',i===z));
+    bread.innerHTML=`bri = ${v} <span style="color:var(--mute)">→</span> <em style="color:${Z[z][1]}">${Z[z][0]}</em>`}
+  let raf=0,user=false;const stop=()=>{user=true;cancelAnimationFrame(raf)};
+  sl.addEventListener('input',()=>{stop();upd()});sl.addEventListener('pointerdown',stop);
+  function start(){user=false;cancelAnimationFrame(raf);sl.value=0;upd();if(reduce){sl.value=100;upd();return}
+    const t0=performance.now()+1500;
+    const f=now=>{if(user)return;const t=now-t0;let v;
+      if(t<0)v=0;else if(t<3400){const p=t/3400;v=255*(p<.5?2*p*p:1-Math.pow(-2*p+2,2)/2)}
+      else if(t<4900){const p=(t-3400)/1500;v=255-155*(1-Math.pow(1-p,3))}else{sl.value=100;upd();return}
+      sl.value=Math.round(v);upd();raf=requestAnimationFrame(f)};
+    raf=requestAnimationFrame(f)}
+  upd();return{start,stop:()=>cancelAnimationFrame(raf)};
+})();
+
+$$('.algo .step').forEach((e,i)=>e.style.setProperty('--k',i));
+/* --- smooth transitions demo (v1.6/v1.7) --- */
+const Smooth=(()=>{
+  const sl=$('#sn'),outN=$('#snv'),info=$('#sni'),chart=$('#smChart'),led=$('#smLed'),wsv=$('#wsv'),wsw=$('#wsw');
+  const COLS=15;led.innerHTML=Array.from({length:COLS},()=>'<i></i>').join('');
+  const cells=$$('i',led),A=[53,227,255],B=[255,79,216];
+  function steps(N){const f=2/(N+1);let x=0;const a=[0];for(let k=0;k<40&&x<1;k++){x+=(1-x)*f;if(N===1||1-x<=.02)x=1;a.push(x)}return a}
+  function render(){
+    const N=+sl.value,a=steps(N),f=2/(N+1);
+    outN.textContent=N;
+    info.innerHTML=`доля остатка 2/(N+1) = <b>${f.toFixed(2)}</b> · команд до цели: <b>${a.length-1}</b>`;
+    const W=960,H=330,m={l:64,r:20,t:40,b:56},iw=W-m.l-m.r,ih=H-m.t-m.b,X=i=>m.l+iw*i/COLS,Y=v=>m.t+ih-v*ih;
+    let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Шаги к цели при плавном переходе на ${N} кадров"><defs><linearGradient id="gSm" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#35e3ff"/><stop offset="1" stop-color="#ff4fd8"/></linearGradient></defs>`;
+    [[0,'0'],[.5,'50%'],[1,'100%']].forEach(([v,l])=>{s+=`<line x1="${m.l}" x2="${W-m.r}" y1="${Y(v)}" y2="${Y(v)}" stroke="rgba(150,170,255,${v?.14:.4})"/><text x="${m.l-12}" y="${Y(v)+7}" text-anchor="end" font-size="19" style="fill:#aab3d4">${l}</text>`});
+    for(let i=0;i<=COLS;i+=3)s+=`<text x="${X(i)}" y="${H-28}" text-anchor="middle" font-size="18" style="fill:#aab3d4">${i}</text>`;
+    s+=`<text x="${m.l+iw/2}" y="${H-4}" text-anchor="middle" font-size="17" style="fill:#7480a8">номер команды</text>`;
+    s+=`<line x1="${m.l}" x2="${W-m.r}" y1="${Y(1)}" y2="${Y(1)}" stroke="#ffb23e" stroke-width="2.5" stroke-dasharray="10 8"/><text x="${m.l+8}" y="${Y(1)-10}" font-size="18" style="fill:#ffb23e">цель</text>`;
+    s+=`<path d="M${X(0)} ${Y(0)}L${X(1)} ${Y(1)}L${X(COLS)} ${Y(1)}" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="2.5" stroke-dasharray="3 8"/><text x="${W-m.r}" y="${Y(1)-10}" text-anchor="end" font-size="17" style="fill:#7480a8">пунктир: N=1, прыжок за одну команду</text>`;
+    const pts=a.map((v,i)=>[X(Math.min(i,COLS)),Y(v)]);
+    s+=`<path class="sp" pathLength="1" d="M${pts.map(p=>p.join(' ')).join('L')}"/>`;
+    pts.forEach((p,i)=>{const last=i===pts.length-1&&i>0;s+=`<circle class="smk hit2" data-i="${i}" style="--k:${i}" cx="${p[0]}" cy="${p[1]}" r="${last?10:8}" fill="#05060c" stroke="${last?'#ffb23e':'#ff4fd8'}" stroke-width="4"/>`});
+    chart.innerHTML=s+'</svg>';
+    $$('.hit2',chart).forEach(c=>{const i=+c.dataset.i;tipOn(c,`Команда ${i}: <b style="color:#35e3ff">${Math.round(a[i]*100)}%</b> пути`+(i===a.length-1&&i>0?' · снап к цели':''))});
+    cells.forEach((c,i)=>{const v=a[Math.min(i,a.length-1)];c.style.background=`rgb(${A.map((x,k)=>Math.round(x+(B[k]-x)*v)).join(',')})`});
+  }
+  /* wheel */
+  const cx=310,cy=310,r=251,P=ang=>{const t=ang*Math.PI/180;return[cx+r*Math.sin(t),cy-r*Math.cos(t)]};
+  const A0=340,pa=P(A0),pb=P(20),lab=ang=>{const t=ang*Math.PI/180;return[cx+304*Math.sin(t),cy-304*Math.cos(t)+8]};
+  const la=lab(A0),lb=lab(20);
+  wsv.innerHTML=`<path d="M${pa} A${r} ${r} 0 1 0 ${pb}" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="3" stroke-dasharray="4 10" stroke-linecap="round"/>
+  <path d="M${pa} A${r} ${r} 0 0 1 ${pb}" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" style="filter:drop-shadow(0 0 10px #fff)"/>
+  <circle cx="${pa[0]}" cy="${pa[1]}" r="13" fill="#06070d" stroke="#fff" stroke-width="4"/><circle cx="${pb[0]}" cy="${pb[1]}" r="13" fill="#06070d" stroke="#fff" stroke-width="4"/>
+  <text x="${la[0]}" y="${la[1]}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="22" font-weight="600" fill="#eef1ff">340°</text><text x="${lb[0]}" y="${lb[1]}" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="22" font-weight="600" fill="#eef1ff">20°</text>
+  <circle id="wdot" r="17" fill="#f33" stroke="#fff" stroke-width="5"/>`;
+  const dot=$('#wdot');
+  function setAng(ang){const [x,y]=P(ang),col=`hsl(${ang} 100% 58%)`;dot.setAttribute('cx',x);dot.setAttribute('cy',y);dot.setAttribute('fill',col);wsw.style.background=col;wsw.style.boxShadow=`0 0 70px ${col}`}
+  let raf=0,t0=0,user=false,seq=0;
+  function wf(now){if(!t0)t0=now;const p=((now-t0)/4200)%1;let e;if(p<.12)e=0;else if(p<.72){const q=(p-.12)/.6;e=q<.5?2*q*q:1-Math.pow(-2*q+2,2)/2}else e=1;setAng((A0+40*e)%360);raf=requestAnimationFrame(wf)}
+  const stopUser=()=>{user=true;clearTimeout(timer)};
+  sl.addEventListener('input',()=>{stopUser();render()});sl.addEventListener('pointerdown',stopUser);
+  let timer=0;
+  function start(){user=false;t0=0;cancelAnimationFrame(raf);clearTimeout(timer);sl.value=4;render();
+    if(reduce){setAng(0);return}
+    raf=requestAnimationFrame(wf);
+    const seqN=[1,2,3,4,5,6,4];let k=0;
+    const tick=()=>{if(user||k>=seqN.length)return;sl.value=seqN[k++];render();timer=setTimeout(tick,1500)};
+    timer=setTimeout(tick,3000);
+  }
+  function stop(){cancelAnimationFrame(raf);clearTimeout(timer)}
+  render();setAng(0);
+  return{start,stop};
+})();
+
+/* --- link lifetime chart (101 drops) --- */
+(()=>{
+  const W=1040,H=335,m={l:30,r:30},iw=W-m.l-m.r,L=Math.log10(3600),X=s=>m.l+iw*Math.log10(s)/L;
+  const rows=[['08.11 до 20:20 · линк жил',1800,3600,'30–60 мин','#58f2a4',34,'left'],['08.11 после 20:21 · линк жил',10,100,'10–100 с','#ff4fd8',148,'right'],['после обрыва линк вернулся за',1,6,'1–6 с','#35e3ff',232,'right']];
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="Время жизни линка: до 20:20 от 30 до 60 минут, после 20:21 от 10 до 100 секунд, возврат за 1–6 секунд">`;
+  [[1,'1 с'],[10,'10 с'],[60,'1 мин'],[600,'10 мин'],[3600,'1 ч']].forEach(([v,l])=>{s+=`<line x1="${X(v)}" x2="${X(v)}" y1="14" y2="292" stroke="rgba(150,170,255,.13)"/><text x="${Math.min(X(v),W-14)}" y="322" text-anchor="${v===1?'start':v===3600?'end':'middle'}" font-size="19" style="fill:#aab3d4;font-family:var(--mono)">${l}</text>`});
+  s+=`<line x1="${m.l}" x2="${W-m.r}" y1="292" y2="292" stroke="rgba(150,170,255,.4)"/>`;
+  rows.forEach((r,i)=>{const x0=X(r[1]),x1=X(r[2]),y=r[5];
+    s+=`<g><text class="rtx" style="--i:${i};fill:#eef1ff;font-family:var(--mono)" x="${m.l}" y="${y-10}" font-size="20">${r[0]}</text>
+    <rect class="rb" style="--i:${i}" x="${x0}" y="${y}" width="${Math.max(10,x1-x0)}" height="38" rx="8" fill="${r[4]}"/>
+    <text class="rtx" style="--i:${i};fill:#eef1ff;font-family:var(--mono)" x="${r[6]==='left'?x0-14:x1+14}" y="${y+27}" text-anchor="${r[6]==='left'?'end':'start'}" font-size="26" font-weight="600">${r[3]}</text>
+    <rect class="hit" x="${m.l}" y="${y-4}" width="${iw}" height="46" data-i="${i}"/></g>`});
+  s+=`<g class="rtx" style="--i:1;font-family:var(--mono)"><rect x="330" y="86" width="400" height="34" rx="17" fill="#1a1630" stroke="#ffb23e" stroke-width="2"/><text x="530" y="109" text-anchor="middle" font-size="18" font-weight="600" fill="#ffb23e">↓ 20:18 · выход из Modern Standby ↓</text></g>`;
+  const box=$('#dropChart');box.innerHTML=s+'</svg>';
+  $$('.hit',box).forEach(h=>{const r=rows[+h.dataset.i];tipOn(h,`${r[0]}<br><b style="color:${r[4]}">${r[3]}</b>`)});
+})();
+
+/* ================= NAVIGATION + TRANSITIONS ================= */
+slides.forEach((sl,i)=>{const e=$('.eyebrow',sl);if(e&&i>0)e.textContent=e.textContent.replace(/^\d+[а-я]? · /,pad2(i+1)+' · ')});
+const sweep=$('#sweep');
+const TR={
+  cube:d=>({out:[{transform:'none',opacity:1},{transform:`translateX(${-24*d}%) rotateY(${40*d}deg) scale(.84)`,opacity:0}],in:[{transform:`translateX(${24*d}%) rotateY(${-40*d}deg) scale(.84)`,opacity:0},{transform:'none',opacity:1}]}),
+  zoom:d=>({out:[{transform:'none',opacity:1,filter:'blur(0px)'},{transform:`scale(${d>0?1.2:.84})`,opacity:0,filter:'blur(16px)'}],in:[{transform:`scale(${d>0?.84:1.2})`,opacity:0,filter:'blur(16px)'},{transform:'none',opacity:1,filter:'blur(0px)'}]}),
+  rise:d=>({out:[{transform:'none',opacity:1},{transform:`translateY(${-10*d}%) rotateX(${12*d}deg)`,opacity:0}],in:[{transform:`translateY(${11*d}%) rotateX(${-14*d}deg)`,opacity:0},{transform:'none',opacity:1}]}),
+  flip:d=>({out:[{transform:'none',opacity:1},{transform:`translateY(${-12*d}%) rotateX(${-42*d}deg)`,opacity:0}],in:[{transform:`translateY(${12*d}%) rotateX(${42*d}deg)`,opacity:0},{transform:'none',opacity:1}]}),
+  wipe:d=>({out:[{opacity:1},{opacity:0}],in:[{clipPath:d>0?'inset(0 100% 0 0)':'inset(0 0 0 100%)',opacity:1},{clipPath:'inset(0 0 0 0)',opacity:1}]})
+};
+const HOOK={s4c:{in:()=>Smooth.start(),out:()=>Smooth.stop()},s6:{in:()=>Frame.start(),out:()=>Frame.stop()},s10:{in:()=>Bri.start(),out:()=>Bri.stop()}};
+
+function go(n,dir){
+  n=Math.max(0,Math.min(N-1,n));if(n===cur)return;
+  running.forEach(a=>{try{a.finish()}catch(e){}});running=[];
+  const from=slides[cur],to=slides[n],d=dir||(n>cur?1:-1);
+  if(from&&HOOK[from.id])HOOK[from.id].out();
+  cur=n;tip.classList.remove('on');
+  to.style.zIndex=2;to.classList.add('active','play');
+  GL.set(to.dataset.scene,to);
+  if(from){
+    from.style.zIndex=1;
+    const type=to.dataset.tr||'zoom',k=TR[type](d),dur=reduce?1:950,ease='cubic-bezier(.65,.02,.2,1)';
+    const ao=from.animate(k.out,{duration:dur,easing:ease,fill:'both'});
+    const ai=to.animate(k.in,{duration:dur,easing:ease,fill:'both'});
+    running.push(ao,ai);
+    ao.onfinish=()=>{from.classList.remove('active','play');ao.cancel()};
+    ai.onfinish=()=>{ai.cancel()};
+    if(!reduce){sweep.style.left=d>0?'-500px':'2000px';
+      sweep.animate([{transform:'skewX(-18deg) translateX(0)',opacity:0},{opacity:1,offset:.25},{opacity:1,offset:.7},{transform:`skewX(-18deg) translateX(${d>0?2700:-2700}px)`,opacity:0}],{duration:1000,easing:'ease-in-out'})}
+  }
+  runCounters(to);
+  if(HOOK[to.id])HOOK[to.id].in();
+  $('#ctr').textContent=`${pad2(n+1)} / ${N}`;
+  $('#prog i').style.width=((n+1)/N*100)+'%';
+  try{history.replaceState(null,'','#s'+(n+1))}catch(e){try{location.hash='s'+(n+1)}catch(_){}}
+}
+const next=()=>go(cur+1,1),prev=()=>go(cur-1,-1);
+$('#bn').onclick=next;$('#bp').onclick=prev;
+$('#bf').onclick=()=>{try{(document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()).catch(()=>{})}catch(e){}};
+addEventListener('keydown',e=>{
+  const inp=e.target&&e.target.tagName==='INPUT';
+  if(['ArrowRight','PageDown'].includes(e.key)||(e.key===' '&&!inp)||(e.key==='Enter'&&!inp)){if(!(inp&&e.key==='ArrowRight')){e.preventDefault();next()}}
+  else if(['ArrowLeft','PageUp'].includes(e.key)){if(!inp){e.preventDefault();prev()}}
+  else if(e.key==='Home'){go(0,-1)}else if(e.key==='End'){go(N-1,1)}
+  else if(e.key==='f'||e.key==='F'||e.key==='а'||e.key==='А'){$('#bf').onclick()}
+});
+let sx=0,sy=0,sok=false;
+addEventListener('pointerdown',e=>{sok=!(e.target.closest&&e.target.closest('input,button'));sx=e.clientX;sy=e.clientY});
+addEventListener('pointerup',e=>{if(!sok)return;const dx=e.clientX-sx,dy=e.clientY-sy;if(Math.abs(dx)>70&&Math.abs(dx)>Math.abs(dy)*1.4)(dx<0?next:prev)()});
+addEventListener('hashchange',()=>{const m=/^#s(\d+)$/.exec(location.hash);if(m)go(+m[1]-1)});
+
+/* ================= 3D ================= */
+const GL=(()=>{
+  const canvas=$('#gl');
+  if(typeof THREE==='undefined'){document.body.classList.add('nogl');return{set(){},resize(){}}}
+  let R,cam,active=null,builders={},scenes={},ready=false;
+  let offX=0,offY=0,tX=0,tY=0,curZ=1,tZ=1,px=0,py=0,tpx=0,tpy=0,swT=0,last=0,S=1;
+  const AM=new THREE.Color('#ff8a1f'),AMT=new THREE.Color(),PAL=['#ff8a1f','#25d3ff','#ff3fd0','#5b6bff','#46f09a','#ffd23e'];
+  let pi=0,pt=0;
+  function ambient(dt){pt+=dt;if(pt>2.3){pt=0;pi=(pi+1)%PAL.length}AMT.set(PAL[pi]);AM.lerp(AMT,1-Math.exp(-dt*3.0))}
+  let GT;
+  function glowTex(){if(GT)return GT;const c=document.createElement('canvas');c.width=c.height=128;const g=c.getContext('2d');
+    const r=g.createRadialGradient(64,64,0,64,64,64);r.addColorStop(0,'rgba(255,255,255,1)');r.addColorStop(.25,'rgba(255,255,255,.5)');r.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=r;g.fillRect(0,0,128,128);return GT=new THREE.CanvasTexture(c)}
+  function spr(color,scale,op){const m=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex(),color,blending:THREE.AdditiveBlending,transparent:true,depthWrite:false,opacity:op}));m.scale.set(scale,scale,1);return m}
+  /* shared laptop screen */
+  const sc=document.createElement('canvas');sc.width=640;sc.height=400;const sg=sc.getContext('2d');const scTex=new THREE.CanvasTexture(sc);
+  function drawScreen(t){const r=AM.r*255|0,g=AM.g*255|0,b=AM.b*255|0;
+    const gr=sg.createLinearGradient(0,0,0,400);gr.addColorStop(0,`rgb(${r*.3|0},${g*.3|0},${b*.4|0})`);gr.addColorStop(1,`rgb(${r},${g},${b})`);
+    sg.fillStyle=gr;sg.fillRect(0,0,640,400);
+    sg.fillStyle='rgba(255,255,255,.2)';sg.beginPath();sg.arc(320+Math.sin(t*.7)*190,130,64,0,7);sg.fill();
+    sg.fillStyle='rgba(5,6,12,.6)';sg.beginPath();sg.moveTo(0,400);for(let i=0;i<=16;i++)sg.lineTo(i*40,300-Math.abs(Math.sin(i*1.3+1))*95);sg.lineTo(640,400);sg.fill();
+    scTex.needsUpdate=true}
+  let KT;function keysTex(){if(KT)return KT;const c=document.createElement('canvas');c.width=300;c.height=110;const g=c.getContext('2d');g.fillStyle='#090b16';g.fillRect(0,0,300,110);
+    g.fillStyle='#1b2140';for(let y=0;y<5;y++)for(let x=0;x<15;x++){g.fillRect(8+x*19,8+y*18,16,14)}return KT=new THREE.CanvasTexture(c)}
+  function laptop(sc){const g=new THREE.Group();
+    const alu=new THREE.MeshStandardMaterial({color:0x2b3350,roughness:.35,metalness:.8});
+    const base=new THREE.Mesh(new THREE.BoxGeometry(3,.1,2),alu);base.position.y=.05;g.add(base);
+    const kb=new THREE.Mesh(new THREE.PlaneGeometry(2.6,.95),new THREE.MeshBasicMaterial({map:keysTex()}));kb.rotation.x=-Math.PI/2;kb.position.set(0,.102,-.1);g.add(kb);
+    const tp=new THREE.Mesh(new THREE.PlaneGeometry(.9,.5),new THREE.MeshBasicMaterial({color:0x151a30}));tp.rotation.x=-Math.PI/2;tp.position.set(0,.102,.6);g.add(tp);
+    const hinge=new THREE.Group();hinge.position.set(0,.1,-.95);hinge.rotation.x=-.3;g.add(hinge);
+    const lid=new THREE.Mesh(new THREE.BoxGeometry(3,1.9,.07),alu);lid.position.y=.95;hinge.add(lid);
+    const scr=new THREE.Mesh(new THREE.PlaneGeometry(2.82,1.72),new THREE.MeshBasicMaterial({map:scTex}));scr.position.set(0,.95,.037);hinge.add(scr);
+    g.scale.setScalar(sc||1);return g}
+  /* ---- hero ---- */
+  builders.hero=()=>{
+    const s=new THREE.Scene();s.fog=new THREE.Fog(0x05060c,16,36);
+    s.add(new THREE.AmbientLight(0x6070a0,.6));const kl=new THREE.DirectionalLight(0xb4c4ff,.5);kl.position.set(4,6,6);s.add(kl);
+    const desk=new THREE.Mesh(new THREE.BoxGeometry(12,.2,6.5),new THREE.MeshStandardMaterial({color:0x121626,roughness:.28,metalness:.55}));desk.position.set(0,-.1,.3);s.add(desk);
+    const wall=new THREE.Mesh(new THREE.PlaneGeometry(20,10),new THREE.MeshStandardMaterial({color:0x0d1020,roughness:.9}));wall.position.set(0,3.8,-2.5);s.add(wall);
+    const sm=new THREE.MeshBasicMaterial({color:0xff8a1f}),FW=6,FH=3.4,FY=2.3,FZ=-2.4,T=.1;
+    [[0,FY+FH/2,FW+T,T],[0,FY-FH/2,FW+T,T],[-FW/2,FY,T,FH],[FW/2,FY,T,FH]].forEach(a=>{const m=new THREE.Mesh(new THREE.BoxGeometry(a[2],a[3],.06),sm);m.position.set(a[0],a[1],FZ);s.add(m)});
+    const glows=[];for(let i=0;i<10;i++){const a=i/10*Math.PI*2,gp=spr(0xff8a1f,2.6,.34);gp.position.set(Math.cos(a)*FW*.5*1.0,FY+Math.sin(a)*FH*.5,FZ+.1);s.add(gp);glows.push(gp)}
+    const lights=[[0,FY+FH/2+.4],[0,FY-FH/2-.1],[-FW/2-.2,FY],[FW/2+.2,FY]].map(p=>{const l=new THREE.PointLight(0xff8a1f,.85,9,1.6);l.position.set(p[0],p[1],FZ+.8);s.add(l);return l});
+    const lap=laptop(1.05);lap.position.set(0,0,.3);s.add(lap);
+    const dl=new THREE.PointLight(0xff8a1f,.4,6,1.6);dl.position.set(0,1.4,1.6);s.add(dl);
+    const n=260,pa=new Float32Array(n*3);for(let i=0;i<n;i++){pa[i*3]=(Math.random()-.5)*14;pa[i*3+1]=Math.random()*6;pa[i*3+2]=(Math.random()-.5)*7}
+    const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(pa,3));
+    const pts=new THREE.Points(pg,new THREE.PointsMaterial({size:.09,map:glowTex(),color:0xaabbff,transparent:true,opacity:.7,blending:THREE.AdditiveBlending,depthWrite:false}));s.add(pts);
+    const c={p:[5.4,3.0,9.6],l:[0,1.7,0]};
+    return{scene:s,cam:c,update(t,dt){drawScreen(t);sm.color.copy(AM);glows.forEach(g=>g.material.color.copy(AM));lights.forEach(l=>l.color.copy(AM));dl.color.copy(AM);
+      const a=pg.attributes.position;for(let i=0;i<n;i++){let y=a.array[i*3+1]+dt*.12;if(y>6)y=0;a.array[i*3+1]=y}a.needsUpdate=true;
+      c.p[0]=5.4+Math.sin(t*.3)*1.6;c.p[1]=3.0+Math.sin(t*.22)*.3;pts.rotation.y=t*.02}}
+  };
+  /* ---- ribbon ---- */
+  builders.ribbon=()=>{
+    const s=new THREE.Scene(),Nn=240,L=[];
+    for(let k=0;k<3;k++){const geo=new THREE.BufferGeometry(),pos=new Float32Array(Nn*2*3),col=new Float32Array(Nn*2*3),idx=[];
+      for(let i=0;i<Nn-1;i++){const a=i*2;idx.push(a,a+1,a+2,a+1,a+3,a+2)}
+      geo.setIndex(idx);geo.setAttribute('position',new THREE.BufferAttribute(pos,3));geo.setAttribute('color',new THREE.BufferAttribute(col,3));
+      const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,transparent:true,opacity:k?.5:.95,blending:k?THREE.AdditiveBlending:THREE.NormalBlending,depthWrite:false}));
+      m.frustumCulled=false;s.add(m);L.push({geo,pos,col,ph:k*1.9,w:k?.1:.2})}
+    const n=180,pa=new Float32Array(n*3);for(let i=0;i<n;i++){pa[i*3]=(Math.random()-.5)*18;pa[i*3+1]=(Math.random()-.5)*5;pa[i*3+2]=(Math.random()-.5)*4}
+    const pg=new THREE.BufferGeometry();pg.setAttribute('position',new THREE.BufferAttribute(pa,3));
+    const pts=new THREE.Points(pg,new THREE.PointsMaterial({size:.08,map:glowTex(),color:0xcdd6ff,transparent:true,opacity:.7,blending:THREE.AdditiveBlending,depthWrite:false}));s.add(pts);
+    const c={p:[0,0,11],l:[0,0,0]},col=new THREE.Color();
+    return{scene:s,cam:c,update(t){
+      L.forEach((l,k)=>{for(let i=0;i<Nn;i++){const u=i/(Nn-1),x=(u-.5)*17,ph=l.ph;
+        const y=Math.sin(u*5.5+t*.9+ph)*.8+Math.sin(u*2.1-t*.5+ph)*.4,z=Math.cos(u*4+t*.7+ph)*1.1,f=u*7+t*1.1+ph,w=l.w;
+        const o=i*6;l.pos[o]=x;l.pos[o+1]=y+Math.cos(f)*w;l.pos[o+2]=z+Math.sin(f)*w;l.pos[o+3]=x;l.pos[o+4]=y-Math.cos(f)*w;l.pos[o+5]=z-Math.sin(f)*w;
+        col.setHSL((u*.9+t*.07+k*.12)%1,.95,.58);l.col[o]=l.col[o+3]=col.r;l.col[o+1]=l.col[o+4]=col.g;l.col[o+2]=l.col[o+5]=col.b}
+        l.geo.attributes.position.needsUpdate=true;l.geo.attributes.color.needsUpdate=true});
+      pts.rotation.y=t*.03}}
+  };
+  /* ---- flow: laptop -> BLE packets -> strip ---- */
+  builders.flow=()=>{
+    const s=new THREE.Scene();s.add(new THREE.AmbientLight(0x6070a0,.7));const kl=new THREE.DirectionalLight(0xb4c4ff,.5);kl.position.set(3,6,8);s.add(kl);
+    const lap=laptop(.95);lap.position.set(-4.7,-1.3,0);lap.rotation.y=.45;s.add(lap);
+    const sp=new THREE.Group();sp.position.set(4.7,-.3,0);s.add(sp);
+    const cyl=new THREE.Mesh(new THREE.CylinderGeometry(.8,.8,1.6,40),new THREE.MeshStandardMaterial({color:0x151a30,roughness:.5,metalness:.4}));sp.add(cyl);
+    const pts=[];for(let i=0;i<=160;i++){const u=i/160,a=u*Math.PI*2*5;pts.push(new THREE.Vector3(Math.cos(a)*.86,-.7+u*1.4,Math.sin(a)*.86))}
+    const hm=new THREE.MeshBasicMaterial({color:0xff8a1f});sp.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts),400,.07,6),hm));
+    const sg2=spr(0xff8a1f,5.6,.55);sp.add(sg2);
+    const ctl=new THREE.Mesh(new THREE.BoxGeometry(1.2,.3,.75),new THREE.MeshStandardMaterial({color:0x0b3b2c,roughness:.5}));ctl.position.set(0,-1.5,1.1);sp.add(ctl);
+    const ant=new THREE.Mesh(new THREE.CylinderGeometry(.025,.025,.9,8),new THREE.MeshStandardMaterial({color:0xcccccc}));ant.position.set(-.45,-.95,1.1);sp.add(ant);
+    const antTip=new THREE.Vector3(4.7-.45,-.45,1.1);
+    const v=(a,b,c)=>new THREE.Vector3(a,b,c);
+    const cW=new THREE.CatmullRomCurve3([v(-3.2,-.4,.6),v(-1.8,1.5,.8),v(1.4,1.5,.5),v(4.15,-.4,1.1)]);
+    const cN=new THREE.CatmullRomCurve3([v(4.15,-.7,1.2),v(1.6,-1.9,1.2),v(-1.6,-1.9,.9),v(-3.3,-1.2,.6)]);
+    [[cW,0x35e3ff],[cN,0xff4fd8]].forEach(([c,col])=>s.add(new THREE.Mesh(new THREE.TubeGeometry(c,80,.014,4),new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:.28}))));
+    const P=[];for(let i=0;i<26;i++){const m=new THREE.Mesh(new THREE.BoxGeometry(.24,.24,.24),new THREE.MeshBasicMaterial({color:0x35e3ff}));const g=spr(0x35e3ff,1.1,.8);m.add(g);m.visible=false;s.add(m);P.push({m,g,t:0,on:false,c:cW,sp:.55})}
+    const rings=[];for(let i=0;i<6;i++){const r=new THREE.Mesh(new THREE.RingGeometry(.92,1,48),new THREE.MeshBasicMaterial({color:0x35e3ff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));r.position.copy(antTip);r.visible=false;s.add(r);rings.push({r,t:1})}
+    let tw=0,tn=0,pulse=0,ringT=0;
+    function spawn(curve,color,spd){const p=P.find(p=>!p.on);if(!p)return;p.on=true;p.t=0;p.c=curve;p.sp=spd;p.m.material.color.setHex(color);p.g.material.color.setHex(color);p.m.visible=true}
+    function ring(){const r=rings.find(r=>r.t>=1);if(!r)return;r.t=0;r.r.visible=true}
+    const c={p:[0,.6,12],l:[0,.1,0]};
+    return{scene:s,cam:c,update(t,dt){drawScreen(t);
+      tw+=dt;tn+=dt;if(tw>.15){tw=0;spawn(cW,AM.getHex(),.62)}if(tn>1.4){tn=0;spawn(cN,0xff4fd8,.4)}
+      P.forEach(p=>{if(!p.on)return;p.t+=dt*p.sp;if(p.t>=1){p.on=false;p.m.visible=false;if(p.c===cW){pulse=1;ringT+=1;if(ringT%2===0)ring()}return}
+        p.m.position.copy(p.c.getPoint(p.t));p.m.rotation.x+=dt*3;p.m.rotation.y+=dt*2;const k=Math.sin(Math.PI*p.t);p.m.scale.setScalar(.5+k*.7)});
+      pulse=Math.max(0,pulse-dt*3);hm.color.copy(AM).lerp(new THREE.Color(1,1,1),pulse*.22);sg2.material.color.copy(AM);sg2.material.opacity=.45+pulse*.3;
+      rings.forEach(o=>{if(o.t>=1)return;o.t+=dt*.9;const k=Math.min(1,o.t);o.r.scale.setScalar(.2+k*1.8);o.r.material.opacity=Math.pow(1-k,1.6)*.8;if(k>=1)o.r.visible=false});
+      c.p[0]=Math.sin(t*.25)*.5}}
+  };
+  /* ---- hunt: radio dies, light stays ---- */
+  builders.hunt=()=>{
+    const s=new THREE.Scene();s.add(new THREE.AmbientLight(0x8090c0,.8));const kl=new THREE.DirectionalLight(0xffffff,.7);kl.position.set(2,6,4);s.add(kl);
+    const g=new THREE.Group();s.add(g);g.rotation.y=-.35;
+    const pcb=new THREE.Mesh(new THREE.BoxGeometry(2.6,.12,1.6),new THREE.MeshStandardMaterial({color:0x0b4a35,roughness:.45}));g.add(pcb);
+    const chip=new THREE.Mesh(new THREE.BoxGeometry(.6,.1,.6),new THREE.MeshStandardMaterial({color:0x0a0a10,roughness:.3,metalness:.5}));chip.position.set(.35,.11,.1);g.add(chip);
+    const chip2=new THREE.Mesh(new THREE.BoxGeometry(.4,.08,.3),new THREE.MeshStandardMaterial({color:0x14141c}));chip2.position.set(-.5,.1,.4);g.add(chip2);
+    const am=new THREE.MeshStandardMaterial({color:0xcccccc,metalness:.8,roughness:.3});
+    const ant=new THREE.Mesh(new THREE.CylinderGeometry(.025,.025,1,8),am);ant.position.set(-1.0,.56,-.55);g.add(ant);
+    const tipM=new THREE.MeshBasicMaterial({color:0x35e3ff}),tipS=new THREE.Mesh(new THREE.SphereGeometry(.07,16,12),tipM);tipS.position.set(-1.0,1.08,-.55);g.add(tipS);
+    const led=new THREE.Mesh(new THREE.SphereGeometry(.07,16,12),new THREE.MeshBasicMaterial({color:0xffa030}));led.position.set(.95,.1,.55);g.add(led);
+    const ledG=spr(0xffa030,1.8,.8);ledG.position.copy(led.position);g.add(ledG);
+    const strip=new THREE.Mesh(new THREE.BoxGeometry(3.6,.05,.22),new THREE.MeshBasicMaterial({color:0xffa030}));strip.position.set(0,0,1.7);g.add(strip);
+    const stripG=spr(0xffa030,5,.4);stripG.position.set(0,.1,1.7);g.add(stripG);
+    const tipW=new THREE.Vector3();tipS.getWorldPosition(tipW);g.updateMatrixWorld(true);tipS.getWorldPosition(tipW);
+    const rings=[];for(let i=0;i<7;i++){const r=new THREE.Mesh(new THREE.RingGeometry(.92,1,56),new THREE.MeshBasicMaterial({color:0x35e3ff,transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));r.position.copy(tipW);r.rotation.x=-Math.PI/2.4;r.visible=false;s.add(r);rings.push({r,t:1})}
+    const P=[];for(let i=0;i<16;i++){const m=new THREE.Mesh(new THREE.BoxGeometry(.2,.2,.2),new THREE.MeshBasicMaterial({color:0x35e3ff}));m.add(spr(0x35e3ff,.9,.7));m.visible=false;s.add(m);P.push({m,on:false,t:0})}
+    const from=new THREE.Vector3(-2.1,1.7,.5);
+    let T=0,ph=-1,sp=0,rt=0;const flash=spr(0xffffff,9,0);flash.position.set(0,.5,0);s.add(flash);
+    const cap=$('#huntcap');
+    function setPh(p){ph=p;const M=[['радио жива: команды принимаются','#58f2a4'],['радио молчит, лента держит последний цвет','#ff5d73'],['сброс блоком питания: лента снова в эфире','#ffb23e']][p];
+      cap.textContent=M[0];cap.style.color=M[1];cap.style.borderColor=M[1];
+      tipM.color.setHex(p===1?0x5a2030:0x35e3ff)}
+    function ring(){const r=rings.find(r=>r.t>=1);if(!r)return;r.t=0;r.r.visible=true}
+    const c={p:[0,4.4,7.4],l:[0,.2,.2]};
+    return{scene:s,cam:c,enter(){T=0;ph=-1},update(t,dt){
+      g.rotation.y=-.35+Math.sin(t*.3)*.12;g.updateMatrixWorld(true);tipS.getWorldPosition(tipW);
+      T+=dt;const L=12,u=T%L,np=u<6?0:u<9?1:2;if(np!==ph)setPh(np);
+      sp+=dt;rt+=dt;
+      if(sp>.4){sp=0;const p=P.find(p=>!p.on);if(p){p.on=true;p.t=0;p.m.visible=true;p.m.material.color.setHex(0x35e3ff)}}
+      P.forEach(p=>{if(!p.on)return;p.t+=dt*.55;const k=p.t;
+        if(k>=1){p.on=false;p.m.visible=false;if(ph!==1)ring();return}
+        p.m.position.lerpVectors(from,tipW,k);p.m.rotation.x+=dt*3;p.m.rotation.y+=dt*2;
+        if(ph===1){p.m.material.color.setHex(0xff5d73);p.m.scale.setScalar(Math.max(0,1-Math.max(0,k-.45)*2.2));if(k>.85){p.on=false;p.m.visible=false}}else p.m.scale.setScalar(1)});
+      rings.forEach(o=>{if(o.t>=1)return;o.t+=dt*.7;const k=Math.min(1,o.t);o.r.scale.setScalar(.15+k*2.6);o.r.material.opacity=Math.pow(1-k,1.5)*.85;if(k>=1)o.r.visible=false});
+      flash.material.opacity=ph===2&&u<9.9?Math.max(0,1-(u-9)/.9)*.8:0;
+      stripG.material.opacity=.38+Math.sin(t*2)*.03}}
+  };
+  /* ---- engine ---- */
+  function get(n){return scenes[n]||(scenes[n]=builders[n]())}
+  function resize(){if(!ready)return;S=Math.min(K*(devicePixelRatio||1),1.5);R.setSize(Math.round(1920*S),Math.round(1080*S),false)}
+  function loop(now){requestAnimationFrame(loop);if(!active||document.hidden)return;
+    const t=now/1000,dt=Math.min(.05,t-last||.016);last=t;
+    const e=reduce?1:.12;offX+=(tX-offX)*e;offY+=(tY-offY)*e;curZ+=(tZ-curZ)*e;px+=(tpx-px)*.05;py+=(tpy-py)*.05;
+    ambient(dt);active.update(t,dt);
+    const b=active.cam;cam.position.set(b.l[0]+(b.p[0]-b.l[0])*curZ+px*.7,b.l[1]+(b.p[1]-b.l[1])*curZ-py*.4,b.l[2]+(b.p[2]-b.l[2])*curZ);cam.lookAt(b.l[0],b.l[1],b.l[2]);
+    cam.setViewOffset(1920,1080,offX,offY,1920,1080);
+    R.render(active.scene,cam)}
+  addEventListener('pointermove',e=>{tpx=(e.clientX/innerWidth-.5)*2;tpy=(e.clientY/innerHeight-.5)*2});
+  function set(name,el){
+    clearTimeout(swT);
+    if(!ready)return;
+    if(!name){canvas.style.opacity=0;swT=setTimeout(()=>{active=null},480);return}
+    const op=+(el.dataset.op||1),ox=+(el.dataset.ox||0),oy=+(el.dataset.oy||0),cz=+(el.dataset.cz||1),sc=get(name);
+    const apply=()=>{active=sc;offX=tX=ox;offY=tY=oy;curZ=tZ=cz;if(sc.enter)sc.enter();canvas.style.opacity=op};
+    if(active&&active!==sc){canvas.style.opacity=0;swT=setTimeout(apply,reduce?0:430)}
+    else if(!active){apply()}
+    else{tX=ox;tY=oy;tZ=cz;canvas.style.opacity=op}
+  }
+  try{R=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});R.setClearColor(0x000000,0);R.setPixelRatio(1);cam=new THREE.PerspectiveCamera(32,16/9,.1,100);ready=true;requestAnimationFrame(loop)}
+  catch(err){document.body.classList.add('nogl')}
+  return{set,resize};
+})();
+
+function fit(){const w=innerWidth,h=innerHeight;K=Math.min(w/1920,h/1080);stage.style.transform=`translate(${(w-1920*K)/2}px,${(h-1080*K)/2}px) scale(${K})`;GL.resize()}
+addEventListener('resize',fit);fit();
+const m0=/^#s(\d+)$/.exec(location.hash);
+go(m0?Math.min(N,Math.max(1,+m0[1]))-1:0,1);
+})();
+</script>
+</body>
+</html>
